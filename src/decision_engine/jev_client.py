@@ -25,7 +25,7 @@ from src.requests.schema import PaymentRequest
 
 JEV_API_URL = os.environ.get("JEV_API_URL", "https://api.typesafe.ai/v1/systemone")
 JEV_API_KEY = os.environ.get("JEV_API_KEY", "")
-JEV_MODEL = os.environ.get("JEV_MODEL", "jev-latest") 
+JEV_MODEL = "jev-latest"
 
 
 def _build_state(request: PaymentRequest) -> dict:
