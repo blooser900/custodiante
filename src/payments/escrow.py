@@ -27,12 +27,12 @@ class EscrowManager:
         """Release funds only if the milestone has been verified.
 
         Returns True if the payment was executed, False if it was held.
+        Raises whatever ArcPaymentClient.send_payment raises if the transfer
+        itself fails after being attempted (network error, DENIED state).
         """
         if not release.milestone_verified:
             return False
 
-        # NOTE: skeleton -- delegate the actual transfer to ArcPaymentClient
-        # once it is wired up to the Circle Agent Stack.
         self.arc_client.send_payment(
             destination_wallet=release.destination_wallet,
             amount_usdc=release.amount_usdc,
