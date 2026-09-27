@@ -16,8 +16,8 @@ from src.policy.rules import Decision, apply_policy
 from src.requests.schema import PaymentRequest
 
 # Swap this line to switch engines -- both implement the same interface.
-#DEFAULT_ENGINE_FACTORY = JevDecisionEngine
-DEFAULT_ENGINE_FACTORY = TypeSafeCompatibleEngine  # Kev, self-hosted
+DEFAULT_ENGINE_FACTORY = JevDecisionEngine
+# DEFAULT_ENGINE_FACTORY = TypeSafeCompatibleEngine  # Kev, self-hosted
 
 
 def process_request(request: PaymentRequest, engine=None) -> None:
