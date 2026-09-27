@@ -1,0 +1,8 @@
+{
+  "request_id": "demo-escalate",
+  "category": "supply_purchase",
+  "amount_usdc": 5000.0,
+  "requester": "unknown_requester",
+  "description": "Large one-off purchase with no prior history and vague justification.",
+  "due_date": null
+}
