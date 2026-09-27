@@ -1,0 +1,59 @@
+# --- Secrets / local configuration ---
+# Real credentials must never be committed. .env.example is the tracked template.
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+
+# --- Local-only source material ---
+# Original Portuguese spec: kept on disk, superseded by docs/spec-tameion-project.md.
+# Not committed: the public repository is English-only.
+docs/spec-projeto-tameion.md
+
+# --- Local runtime data ---
+# Audit log and any other local state written at runtime (see AUDIT_LOG_PATH).
+data/
+*.jsonl
+*.db
+*.sqlite
+*.sqlite3
+*.log
+
+# --- Python virtual environments ---
+venv/
+.venv/
+env/
+ENV/
+.python-version
+
+# --- Python build artifacts ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+build/
+dist/
+wheels/
+pip-wheel-metadata/
+
+# --- Test / tooling caches ---
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+
+# --- Editors and OS ---
+.idea/
+.vscode/
+*.swp
+*~
+.DS_Store
+Thumbs.db
+desktop.ini
