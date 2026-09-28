@@ -11,11 +11,30 @@ technical spec (background, architecture, priorities, and demo requirements).
 ## Quick start
 
 ```bash
-cp .env.example .env      # fill in real API keys
-pip install -r requirements.txt   # or: poetry install
-python -m demo.seed_scenarios     # generate example payment requests
-python -m src.main --input demo/scenarios/example_1.json
+cp .env.example .env              # then add your CIRCLE_API_KEY
+pip install -e ".[dev]"           # installs deps + pytest
+python -m scripts.setup_arc_wallet --wait   # one-time: entity secret + Arc testnet wallet
+bash demo/run_demo.sh             # runs the 3 demo scenarios end to end
+python -m pytest                  # unit tests (no credentials needed)
 ```
+
+### One-time Arc testnet setup
+
+`scripts/setup_arc_wallet.py` is idempotent (safe to re-run) and does:
+
+1. Registers a new Circle entity secret and saves the recovery file to `./recovery/`.
+2. Creates a wallet set and one wallet on `ARC-TESTNET`, writing the IDs to `.env`.
+3. Opens the public faucet (https://faucet.circle.com/) so you can fund the wallet
+   with testnet USDC. Funding is manual on purpose: the programmatic faucet API
+   needs an upgraded Circle account.
+
+Back up `./recovery/` somewhere safe. Both it and `.env` are git-ignored; never
+commit them.
+
+### Debugging the decision engine
+
+`python -m demo.inspect_scores demo/scenarios/demo-approve.json` prints the raw
+score, confidence, and probability distribution for each question.
 
 ## Project layout
 
