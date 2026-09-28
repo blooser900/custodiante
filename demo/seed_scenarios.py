@@ -18,6 +18,7 @@ SCENARIOS = [
         "requester": "contractor:known_vendor",
         "description": "Milestone 1 of 2, verified complete, vendor has a clean payment history.",
         "due_date": "2026-10-03T00:00:00Z",
+        "counterparty_wallet": "0x0000000000000000000000000000000000dEaD",
     },
     {
         "request_id": "demo-reduced",
@@ -26,6 +27,7 @@ SCENARIOS = [
         "requester": "ops-team",
         "description": "Urgent renewal to avoid service interruption, vendor is new to the system.",
         "due_date": "2026-09-29T00:00:00Z",
+        "counterparty_wallet": "0x0000000000000000000000000000000000dEaD",
     },
     {
         "request_id": "demo-escalate",
