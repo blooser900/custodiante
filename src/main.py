@@ -6,12 +6,14 @@ Usage:
 
 import argparse
 import json
+import os
 import sys
 
 from src.audit.logger import build_entry
 from src.audit.store import append_entry
 from src.decision_engine.jev_client import JevDecisionEngine
 from src.decision_engine.fallback_classifier import TypeSafeCompatibleEngine
+from src.payments.arc_client import ArcPaymentClient
 from src.policy.rules import Decision, apply_policy
 from src.requests.schema import PaymentRequest
 
@@ -20,7 +22,7 @@ DEFAULT_ENGINE_FACTORY = JevDecisionEngine
 # DEFAULT_ENGINE_FACTORY = TypeSafeCompatibleEngine  # Kev, self-hosted
 
 
-def process_request(request: PaymentRequest, engine=None) -> None:
+def process_request(request: PaymentRequest, engine=None, arc_client=None) -> None:
     """Run a single payment request through the full pipeline."""
     engine = engine or DEFAULT_ENGINE_FACTORY()
 
@@ -28,10 +30,29 @@ def process_request(request: PaymentRequest, engine=None) -> None:
     policy_decision = apply_policy(request, scores)
 
     payment_executed = False
-    if policy_decision.decision in (Decision.APPROVE, Decision.APPROVE_REDUCED):
-        # NOTE: wire up to src/payments/arc_client.py once credentials exist.
-        # payment_executed = arc_client.send_payment(...)
-        payment_executed = False  # placeholder until payments are wired up
+    approved = policy_decision.decision in (Decision.APPROVE, Decision.APPROVE_REDUCED)
+
+    if approved and request.counterparty_wallet and os.environ.get("CIRCLE_API_KEY"):
+        arc_client = arc_client or ArcPaymentClient()
+        amount = policy_decision.reduced_amount or request.amount_usdc
+        try:
+            arc_client.send_payment(
+                destination_wallet=request.counterparty_wallet,
+                amount_usdc=amount,
+                memo=f"payment for request {request.request_id}",
+            )
+            payment_executed = True
+        except RuntimeError as e:
+            # Approved by policy, but the on-chain transfer itself failed
+            # (denied, timed out, network error). Logged, not silently
+            # swallowed -- the audit trail below still records this request
+            # as approved-but-not-executed.
+            print(f"Payment execution failed for {request.request_id}: {e}")
+    elif approved and (not request.counterparty_wallet or not os.environ.get("CIRCLE_API_KEY")):
+        print(
+            f"Request {request.request_id} was approved, but on-chain execution "
+            "was skipped (missing counterparty_wallet or CIRCLE_API_KEY)."
+        )
 
     entry = build_entry(
         request=request,
