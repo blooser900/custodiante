@@ -9,6 +9,15 @@ import json
 import os
 import sys
 
+# Must run before the src.* imports below: jev_client.py and
+# fallback_classifier.py read their config as module-level constants at
+# import time (e.g. JEV_API_KEY = os.environ.get(...)), so .env has to be
+# loaded into the environment first, or they'd permanently capture empty
+# defaults regardless of what's in .env.
+from dotenv import load_dotenv
+
+load_dotenv()
+
 from src.audit.logger import build_entry
 from src.audit.store import append_entry
 from src.decision_engine.jev_client import JevDecisionEngine
