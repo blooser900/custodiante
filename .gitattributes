@@ -1,0 +1,22 @@
+# Line endings: LF in the repository and in the working tree, everywhere.
+# Working from both Linux and Windows otherwise makes Git rewrite files on
+# checkout (core.autocrlf=true on Windows), producing spurious diffs.
+* text=auto eol=lf
+
+# Shell scripts must never get CRLF: bash fails on the shebang and on
+# `set -euo pipefail` when the file contains \r\n.
+*.sh text eol=lf
+
+# Windows-only batch scripts genuinely need CRLF.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Never apply text conversion to binaries.
+*.png binary
+*.jpg binary
+*.gif binary
+*.pdf binary
+*.zip binary
+*.xlsx binary
+*.db binary
+*.sqlite binary
