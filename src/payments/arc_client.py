@@ -9,6 +9,7 @@ Reference: https://developers.circle.com/wallets/dev-controlled/transfer-tokens-
 """
 
 import os
+import re
 import time
 
 from circle.web3 import developer_controlled_wallets as dcw
@@ -17,6 +18,34 @@ from circle.web3 import utils
 # USDC contract address on Arc Testnet (native gas token; same address used
 # in Circle's own quickstart for this chain).
 ARC_TESTNET_USDC_ADDRESS = "0x3600000000000000000000000000000000000000"
+
+# Structural check only (0x + 40 hex chars). This catches typos, truncated
+# copy-pastes, and addresses from the wrong chain format -- it does NOT
+# verify EIP-55 checksum casing or that the address actually exists/is
+# reachable on Arc.
+_EVM_ADDRESS_RE = re.compile(r"^0x[0-9a-fA-F]{40}$")
+
+
+def _validate_destination(destination_wallet: str, source_wallet: str) -> None:
+    """Reject a transfer before it reaches Circle's API if it's clearly wrong.
+
+    Raises ValueError for a malformed address or a transfer back to the
+    same wallet that is about to send it -- the latter being something
+    Circle's API has been observed to accept and mark COMPLETE without the
+    transfer being visible on the public explorer afterwards, which makes
+    it a dangerous silent no-op for a payment-approval system to allow.
+    """
+    if not _EVM_ADDRESS_RE.match(destination_wallet):
+        raise ValueError(
+            f"'{destination_wallet}' is not a well-formed EVM address "
+            "(expected 0x followed by 40 hex characters)."
+        )
+    if source_wallet and destination_wallet.lower() == source_wallet.lower():
+        raise ValueError(
+            "destination_wallet is the same as the source wallet. "
+            "Refusing a self-transfer: it has been observed to return "
+            "a COMPLETE state without a verifiable on-chain transaction."
+        )
 
 ARC_BLOCKCHAIN = os.environ.get("ARC_BLOCKCHAIN", "ARC-TESTNET")
 TERMINAL_STATES = {"COMPLETE", "FAILED", "CANCELLED", "DENIED"}
@@ -48,9 +77,13 @@ class ArcPaymentClient:
         is logged locally (Circle's transfer API has no on-chain memo field
         for a plain USDC transfer) so it still ends up in our own audit log.
 
-        Returns the final transaction dict from Circle. Raises RuntimeError
-        if the transaction does not complete.
+        Returns the final transaction dict from Circle. Raises ValueError if
+        the destination address fails validation (see _validate_destination)
+        before any API call is made, or RuntimeError if the transaction does
+        not complete.
         """
+        _validate_destination(destination_wallet, self.wallet_address)
+
         request = dcw.CreateTransferTransactionForDeveloperRequest.from_dict(
             {
                 "walletAddress": self.wallet_address,

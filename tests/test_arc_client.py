@@ -10,7 +10,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from src.payments.arc_client import ArcPaymentClient
+from src.payments.arc_client import ArcPaymentClient, _validate_destination
 
 
 def make_client() -> ArcPaymentClient:
@@ -39,7 +39,7 @@ def test_send_payment_completes_after_polling(mock_sleep):
     client.transactions_api.get_transaction.side_effect = [pending_poll, complete_poll]
 
     result = client.send_payment(
-        destination_wallet="0xdead", amount_usdc=42.0, memo="test payment"
+        destination_wallet="0x" + "d" * 40, amount_usdc=42.0, memo="test payment"
     )
 
     assert result["transaction_id"] == "tx-123"
@@ -61,7 +61,7 @@ def test_send_payment_raises_on_denied(mock_sleep):
     client.transactions_api.get_transaction.return_value = denied_poll
 
     with pytest.raises(RuntimeError, match="DENIED"):
-        client.send_payment(destination_wallet="0xdead", amount_usdc=10.0, memo="will fail")
+        client.send_payment(destination_wallet="0x" + "d" * 40, amount_usdc=10.0, memo="will fail")
 
 
 def test_get_balance_finds_usdc_entry():
@@ -77,6 +77,44 @@ def test_get_balance_finds_usdc_entry():
     client.wallets_api.list_wallet_balance.return_value = balance_response
 
     assert client.get_balance() == 123.45
+
+
+def test_validate_destination_rejects_malformed_address():
+    with pytest.raises(ValueError, match="not a well-formed EVM address"):
+        _validate_destination("not-an-address", source_wallet="0x" + "1" * 40)
+
+
+def test_validate_destination_rejects_wrong_length():
+    with pytest.raises(ValueError, match="not a well-formed EVM address"):
+        _validate_destination("0x1234", source_wallet="0x" + "1" * 40)
+
+
+def test_validate_destination_rejects_self_transfer():
+    address = "0x" + "a" * 40
+    with pytest.raises(ValueError, match="same as the source wallet"):
+        _validate_destination(address, source_wallet=address)
+
+
+def test_validate_destination_self_transfer_check_is_case_insensitive():
+    with pytest.raises(ValueError, match="same as the source wallet"):
+        _validate_destination("0x" + "A" * 40, source_wallet="0x" + "a" * 40)
+
+
+def test_validate_destination_allows_well_formed_different_address():
+    _validate_destination("0x" + "b" * 40, source_wallet="0x" + "a" * 40)  # no raise
+
+
+@patch("src.payments.arc_client.time.sleep")
+def test_send_payment_rejects_self_transfer_before_calling_api(mock_sleep):
+    client = make_client()
+    client.wallet_address = "0x" + "c" * 40
+
+    with pytest.raises(ValueError, match="same as the source wallet"):
+        client.send_payment(
+            destination_wallet=client.wallet_address, amount_usdc=5.0, memo="self-pay test"
+        )
+
+    client.transactions_api.create_developer_transaction_transfer.assert_not_called()
 
 
 def test_get_balance_returns_zero_when_no_usdc():
