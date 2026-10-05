@@ -39,19 +39,24 @@ def process_request(request: PaymentRequest, engine=None, arc_client=None) -> No
     policy_decision = apply_policy(request, scores)
 
     payment_executed = False
+    payment_result: dict | None = None
     approved = policy_decision.decision in (Decision.APPROVE, Decision.APPROVE_REDUCED)
 
     if approved and request.counterparty_wallet and os.environ.get("CIRCLE_API_KEY"):
         arc_client = arc_client or ArcPaymentClient()
         amount = policy_decision.reduced_amount or request.amount_usdc
         try:
-            arc_client.send_payment(
+            payment_result = arc_client.send_payment(
                 destination_wallet=request.counterparty_wallet,
                 amount_usdc=amount,
                 memo=f"payment for request {request.request_id}",
             )
             payment_executed = True
-        except RuntimeError as e:
+            print(
+                f"  -> transaction_id={payment_result['transaction_id']} "
+                f"tx_hash={payment_result['tx_hash']}"
+            )
+        except (RuntimeError, ValueError) as e:
             # Approved by policy, but the on-chain transfer itself failed
             # (denied, timed out, network error). Logged, not silently
             # swallowed -- the audit trail below still records this request
@@ -68,6 +73,7 @@ def process_request(request: PaymentRequest, engine=None, arc_client=None) -> No
         scores=scores,
         policy_decision=policy_decision,
         payment_executed=payment_executed,
+        payment_result=payment_result,
     )
     append_entry(entry)
 

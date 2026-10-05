@@ -23,6 +23,11 @@ class AuditEntry(BaseModel):
     reduced_amount: float | None
     reason: str
     payment_executed: bool
+    # Populated only when payment_executed is True. Without these, the audit
+    # trail cannot actually be verified against the chain or against Circle's
+    # own console -- which defeats the point of having an audit trail at all.
+    transaction_id: str | None = None
+    tx_hash: str | None = None
 
 
 def build_entry(
@@ -30,8 +35,14 @@ def build_entry(
     scores: DecisionScores,
     policy_decision: PolicyDecision,
     payment_executed: bool,
+    payment_result: dict | None = None,
 ) -> AuditEntry:
-    """Assemble a single audit entry from one full decision cycle."""
+    """Assemble a single audit entry from one full decision cycle.
+
+    `payment_result` is whatever ArcPaymentClient.send_payment returned
+    (transaction_id, tx_hash, etc.), if a payment was attempted and
+    succeeded. Pass None if no payment was executed.
+    """
     return AuditEntry(
         timestamp=datetime.now(timezone.utc).isoformat(),
         request=request,
@@ -40,4 +51,6 @@ def build_entry(
         reduced_amount=policy_decision.reduced_amount,
         reason=policy_decision.reason,
         payment_executed=payment_executed,
+        transaction_id=(payment_result or {}).get("transaction_id"),
+        tx_hash=(payment_result or {}).get("tx_hash"),
     )

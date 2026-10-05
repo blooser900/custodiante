@@ -37,6 +37,14 @@ def make_high_trust_engine() -> MagicMock:
 def test_approved_request_with_wallet_executes_payment(mock_append_entry):
     engine = make_high_trust_engine()
     arc_client = MagicMock()
+    arc_client.send_payment.return_value = {
+        "transaction_id": "tx-123",
+        "state": "COMPLETE",
+        "tx_hash": "0xabc123",
+        "destination_wallet": "0xdeadbeef",
+        "amount_usdc": 100.0,
+        "memo": "payment for request main-test-1",
+    }
 
     process_request(make_request("0xdeadbeef"), engine=engine, arc_client=arc_client)
 
@@ -47,6 +55,10 @@ def test_approved_request_with_wallet_executes_payment(mock_append_entry):
 
     logged_entry = mock_append_entry.call_args[0][0]
     assert logged_entry.payment_executed is True
+    # The whole point of this fix: transaction_id/tx_hash must actually
+    # reach the audit log, not just the console print.
+    assert logged_entry.transaction_id == "tx-123"
+    assert logged_entry.tx_hash == "0xabc123"
 
 
 @patch("src.main.append_entry")
@@ -60,6 +72,7 @@ def test_approved_request_without_credentials_skips_payment(mock_append_entry):
     arc_client.send_payment.assert_not_called()
     logged_entry = mock_append_entry.call_args[0][0]
     assert logged_entry.payment_executed is False
+    assert logged_entry.transaction_id is None
 
 
 @patch("src.main.append_entry")
@@ -84,6 +97,23 @@ def test_failed_transfer_is_logged_not_raised(mock_append_entry):
 
     # Should not raise -- a failed on-chain transfer is recorded, not fatal.
     process_request(make_request("0xdeadbeef"), engine=engine, arc_client=arc_client)
+
+    logged_entry = mock_append_entry.call_args[0][0]
+    assert logged_entry.payment_executed is False
+    assert logged_entry.transaction_id is None
+
+
+@patch("src.main.append_entry")
+@patch.dict(os.environ, {"CIRCLE_API_KEY": "fake-key"})
+def test_rejected_destination_address_is_logged_not_raised(mock_append_entry):
+    """A malformed address or a self-transfer must not crash the pipeline --
+    ArcPaymentClient raises ValueError for these (see _validate_destination),
+    and main.py must catch that the same way it catches a failed transfer."""
+    engine = make_high_trust_engine()
+    arc_client = MagicMock()
+    arc_client.send_payment.side_effect = ValueError("not a well-formed EVM address")
+
+    process_request(make_request("not-a-real-address"), engine=engine, arc_client=arc_client)
 
     logged_entry = mock_append_entry.call_args[0][0]
     assert logged_entry.payment_executed is False
