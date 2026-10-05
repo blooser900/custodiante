@@ -120,7 +120,10 @@ def ensure_wallet(client, env_path: Path = ENV_PATH) -> tuple[str, str]:
 
     set_request = dcw.CreateWalletSetRequest.from_dict({"name": WALLET_SET_NAME})
     set_response = wallet_sets_api.create_wallet_set(set_request)
-    wallet_set = set_response.data.to_dict()["wallet_set"]
+    # NOTE: WalletSetResponseData.to_dict() overrides the key to camelCase
+    # ("walletSet"), unlike most other fields in this SDK -- confirmed by
+    # reading the generated model source directly.
+    wallet_set = set_response.data.to_dict()["walletSet"]
     wallet_set_id = wallet_set["id"]
 
     wallet_request = dcw.CreateWalletRequest.from_dict(
@@ -150,7 +153,9 @@ def ensure_wallet(client, env_path: Path = ENV_PATH) -> tuple[str, str]:
 def get_usdc_balance(client, wallet_id: str) -> float:
     """Read the wallet's current USDC balance (0.0 if none)."""
     response = dcw.WalletsApi(client).list_wallet_balance(id=wallet_id)
-    for entry in response.data.to_dict().get("token_balances", []):
+    # NOTE: the SDK's to_dict() uses the camelCase alias here ("tokenBalances"),
+    # unlike most fields -- see the matching note in src/payments/arc_client.py.
+    for entry in response.data.to_dict().get("tokenBalances", []):
         if entry.get("token", {}).get("symbol") == "USDC":
             return float(entry["amount"])
     return 0.0

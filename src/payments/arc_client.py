@@ -90,7 +90,10 @@ class ArcPaymentClient:
         return {
             "transaction_id": transaction_id,
             "state": current_state,
-            "tx_hash": transaction.get("tx_hash"),
+            # NOTE: aliased to "txHash" in to_dict() output, unlike "state"
+            # on the same model -- confirmed by reading the generated model
+            # source directly rather than assuming consistent naming.
+            "tx_hash": transaction.get("txHash"),
             "destination_wallet": destination_wallet,
             "amount_usdc": amount_usdc,
             "memo": memo,
@@ -103,7 +106,11 @@ class ArcPaymentClient:
         except dcw.ApiException as e:
             raise RuntimeError(f"Failed to fetch wallet balance: {e}") from e
 
-        balances = response.data.to_dict().get("token_balances", [])
+        # NOTE: BalancesData.to_dict() uses the camelCase alias here, unlike
+        # most fields in this SDK -- confirmed by reading the generated
+        # model source directly (a prior version of this file incorrectly
+        # read "token_balances" and silently always returned an empty list).
+        balances = response.data.to_dict().get("tokenBalances", [])
         for entry in balances:
             if entry.get("token", {}).get("symbol") == "USDC":
                 return float(entry["amount"])

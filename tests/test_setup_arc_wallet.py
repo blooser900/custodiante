@@ -86,7 +86,7 @@ def test_ensure_wallet_creates_and_saves(tmp_path):
     env.write_text("ARC_WALLET_ID=\nARC_WALLET_ADDRESS=\n")
 
     set_response = MagicMock()
-    set_response.data.to_dict.return_value = {"wallet_set": {"id": "set-1"}}
+    set_response.data.to_dict.return_value = {"walletSet": {"id": "set-1"}}
     wallet_response = MagicMock()
     wallet_response.data.to_dict.return_value = {
         "wallets": [{"id": "w-9", "address": "0xfeed"}]
@@ -109,7 +109,7 @@ def test_ensure_wallet_creates_and_saves(tmp_path):
 def test_get_usdc_balance_reads_usdc_entry():
     response = MagicMock()
     response.data.to_dict.return_value = {
-        "token_balances": [{"amount": "20.0", "token": {"symbol": "USDC"}}]
+        "tokenBalances": [{"amount": "20.0", "token": {"symbol": "USDC"}}]
     }
     with patch.object(setup.dcw, "WalletsApi") as wallets_api:
         wallets_api.return_value.list_wallet_balance.return_value = response

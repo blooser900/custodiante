@@ -34,7 +34,7 @@ def test_send_payment_completes_after_polling(mock_sleep):
     pending_poll.data.to_dict.return_value = {"transaction": {"state": "PENDING"}}
     complete_poll = MagicMock()
     complete_poll.data.to_dict.return_value = {
-        "transaction": {"state": "COMPLETE", "tx_hash": "0xabc"}
+        "transaction": {"state": "COMPLETE", "txHash": "0xabc"}
     }
     client.transactions_api.get_transaction.side_effect = [pending_poll, complete_poll]
 
@@ -69,7 +69,7 @@ def test_get_balance_finds_usdc_entry():
 
     balance_response = MagicMock()
     balance_response.data.to_dict.return_value = {
-        "token_balances": [
+        "tokenBalances": [
             {"amount": "123.45", "token": {"symbol": "USDC"}},
             {"amount": "1.0", "token": {"symbol": "ETH"}},
         ]
@@ -83,7 +83,7 @@ def test_get_balance_returns_zero_when_no_usdc():
     client = make_client()
 
     balance_response = MagicMock()
-    balance_response.data.to_dict.return_value = {"token_balances": []}
+    balance_response.data.to_dict.return_value = {"tokenBalances": []}
     client.wallets_api.list_wallet_balance.return_value = balance_response
 
     assert client.get_balance() == 0.0
