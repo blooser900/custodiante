@@ -1,0 +1,42 @@
+# Business rules for the Tameion payment agent.
+#
+# This file is versioned and read fresh on every request, so edits take effect
+# immediately with no restart. Edit it by hand, through the CLI
+# (python -m scripts.manage_rules ...), or through the dashboard's settings page.
+#
+# Note: scripts/manage_rules.py and the settings page rewrite this file in full
+# and do not preserve comments.
+
+# Hard USDC ceiling per request category. Above this, a request is always
+# escalated to a human no matter how confident the decision engine is.
+category_limits:
+  contractor_milestone: 2000.0
+  supply_purchase: 1000.0
+  operational_expense: 500.0
+  other: 200.0
+
+# Thresholds that turn the three scores into a decision.
+thresholds:
+  trust_min_auto_approve: 0.75
+  trust_min_confidence_for_auto_approve: 0.7
+  trust_min_to_consider: 0.4
+  importance_high: 0.7
+  urgency_high: 0.7
+  reduced_amount_fraction: 0.5
+
+# Rubric text the decision engine scores each question against, ordered low to
+# high. Every list must have between 2 and 10 levels (a System One "Score"
+# question requirement).
+criteria:
+  trust:
+    - "Likely fraudulent, malformed, or contradicts known facts about the requester"
+    - "Plausible but has unexplained gaps: vague justification, no supporting detail"
+    - "Clearly legitimate: well-documented, consistent with the requester's history"
+  urgency:
+    - "No real time pressure; could wait weeks with no consequence"
+    - "Some time pressure; a delay of days would cause friction"
+    - "Time-critical; missing the deadline causes real, immediate harm"
+  importance:
+    - "Low impact if this payment is never made"
+    - "Moderate impact: inconvenience or a minor loss of trust/service"
+    - "High impact: significant financial loss, service outage, or relationship damage"
