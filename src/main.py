@@ -31,7 +31,15 @@ def main() -> int:
         data = json.load(f)
 
     request = PaymentRequest.model_validate(data)
-    process_request(request)
+    try:
+        process_request(request)
+    except RuntimeError as e:
+        # A clear, short message beats a 40-line traceback, especially
+        # mid-demo. RuntimeErrors raised inside the pipeline (decision
+        # engine unreachable, Arc/Circle misconfigured, etc.) already carry
+        # an actionable message -- just print it, not everything above it.
+        print(f"\nFailed to process {args.input}: {e}", file=sys.stderr)
+        return 1
     return 0
 
 
