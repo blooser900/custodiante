@@ -2,7 +2,8 @@
 
 read_latest_per_request and append_entry are mocked throughout: no test
 here touches the real data/audit_log.jsonl file, and no test hits a real
-Jev/Kev server or Circle API.
+Jev/Kev server or Circle API. load_config() is also mocked (autouse) so
+no test touches the real config/rules.yaml either.
 """
 
 import os
@@ -13,10 +14,36 @@ from fastapi.testclient import TestClient
 
 from src.api import app
 from src.audit.logger import AuditEntry
+from src.config import RulesConfig, ScoringCriteria, Thresholds
 from src.decision_engine.engine import DecisionScores, ScoreResult
 from src.requests.schema import PaymentRequest, RequestCategory
 
 client = TestClient(app)
+
+
+def fake_rules_config() -> RulesConfig:
+    return RulesConfig(
+        category_limits={"operational_expense": 500.0, "other": 200.0},
+        thresholds=Thresholds(
+            trust_min_auto_approve=0.75,
+            trust_min_confidence_for_auto_approve=0.7,
+            trust_min_to_consider=0.4,
+            importance_high=0.7,
+            urgency_high=0.7,
+            reduced_amount_fraction=0.5,
+        ),
+        criteria=ScoringCriteria(trust=["a", "b"], urgency=["a", "b"], importance=["a", "b"]),
+    )
+
+
+@pytest.fixture(autouse=True)
+def mock_config():
+    config = fake_rules_config()
+    with (
+        patch("src.policy.rules.load_config", return_value=config),
+        patch("src.policy.limits.load_config", return_value=config),
+    ):
+        yield config
 
 
 def make_entry(
@@ -261,3 +288,52 @@ def test_decide_escalation_already_reviewed(mock_read):
 
     assert response.status_code == 409
     assert "ana" in response.json()["detail"]
+
+
+# --------------------------------------------------------------------------
+# GET/PUT /api/config
+# --------------------------------------------------------------------------
+
+
+@patch("src.api.load_config")
+def test_get_config_returns_current_rules(mock_load):
+    mock_load.return_value = fake_rules_config()
+
+    response = client.get("/api/config")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["category_limits"]["operational_expense"] == 500.0
+    assert data["criteria"]["trust"] == ["a", "b"]
+
+
+@patch("src.api.save_config")
+def test_put_config_persists_valid_update(mock_save):
+    payload = fake_rules_config().model_dump()
+    payload["category_limits"]["operational_expense"] = 999.0
+
+    response = client.put("/api/config", json=payload)
+
+    assert response.status_code == 200
+    assert response.json()["category_limits"]["operational_expense"] == 999.0
+    mock_save.assert_called_once()
+    saved_config = mock_save.call_args[0][0]
+    assert saved_config.category_limits["operational_expense"] == 999.0
+
+
+def test_put_config_rejects_invalid_threshold():
+    payload = fake_rules_config().model_dump()
+    payload["thresholds"]["trust_min_auto_approve"] = 5.0  # out of [0, 1]
+
+    response = client.put("/api/config", json=payload)
+
+    assert response.status_code == 422  # FastAPI's own validation, before save_config runs
+
+
+def test_put_config_rejects_too_few_rubric_levels():
+    payload = fake_rules_config().model_dump()
+    payload["criteria"]["trust"] = ["only one level"]
+
+    response = client.put("/api/config", json=payload)
+
+    assert response.status_code == 422

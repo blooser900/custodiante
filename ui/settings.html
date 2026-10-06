@@ -1,0 +1,319 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Tameion · Regras</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    --paper: #EEF2EA;
+    --paper-line: #C9D3C3;
+    --ink: #1E2A22;
+    --ink-soft: #4B5A4F;
+    --gold: #9C6B1F;
+    --gold-bg: #F1E6D2;
+    --rust: #8B3A2B;
+    --rust-bg: #F3E2DD;
+    --slate: #52514C;
+    --focus: #2C5AA0;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: 'IBM Plex Sans', system-ui, sans-serif;
+    line-height: 1.5;
+  }
+  :focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+  .page { max-width: 760px; margin: 0 auto; padding: 2rem 1.25rem 4rem; }
+
+  header.top {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 1rem;
+    border-bottom: 1px solid var(--paper-line);
+    padding-bottom: 1.25rem;
+    margin-bottom: 2rem;
+  }
+  h1 { font-family: 'Source Serif 4', serif; font-weight: 600; font-size: 1.6rem; margin: 0; }
+  a.back { font-size: 0.9rem; color: var(--ink-soft); text-decoration: none; }
+  a.back:hover { color: var(--ink); }
+
+  section { margin-bottom: 2.5rem; }
+  h2 { font-family: 'Source Serif 4', serif; font-size: 1.1rem; font-weight: 600; margin: 0 0 0.3rem; }
+  .section-help { font-size: 0.85rem; color: var(--ink-soft); margin: 0 0 1rem; max-width: 56ch; }
+
+  .limit-row, .threshold-row {
+    display: grid;
+    grid-template-columns: 1fr 9rem;
+    gap: 0.75rem;
+    align-items: center;
+    border-top: 1px solid var(--paper-line);
+    padding: 0.7rem 0;
+  }
+  .threshold-row { grid-template-columns: 1fr 7rem; }
+  .row-label { font-size: 0.88rem; }
+  .row-help { font-size: 0.78rem; color: var(--ink-soft); margin-top: 0.1rem; }
+
+  input[type="number"], input[type="text"] {
+    width: 100%;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.9rem;
+    padding: 0.4rem 0.5rem;
+    border: 1px solid var(--paper-line);
+    border-radius: 3px;
+    background: #fff;
+    color: var(--ink);
+  }
+
+  .rubric-block { border-top: 1px solid var(--paper-line); padding: 1rem 0; }
+  .rubric-title { font-weight: 600; font-size: 0.92rem; margin: 0 0 0.6rem; text-transform: capitalize; }
+  .level-row { display: grid; grid-template-columns: 1.5rem 1fr auto; gap: 0.5rem; align-items: start; margin-bottom: 0.5rem; }
+  .level-index { font-family: 'IBM Plex Mono', monospace; font-size: 0.8rem; color: var(--ink-soft); padding-top: 0.5rem; }
+  .level-row textarea {
+    font-family: 'IBM Plex Sans', sans-serif;
+    font-size: 0.86rem;
+    padding: 0.4rem 0.5rem;
+    border: 1px solid var(--paper-line);
+    border-radius: 3px;
+    background: #fff;
+    color: var(--ink);
+    resize: vertical;
+    min-height: 2.4rem;
+  }
+  .rubric-actions { display: flex; gap: 0.6rem; margin-top: 0.4rem; }
+
+  button {
+    font-family: 'IBM Plex Sans', sans-serif;
+    font-size: 0.85rem;
+    font-weight: 500;
+    padding: 0.4rem 0.8rem;
+    border-radius: 3px;
+    border: 1px solid var(--paper-line);
+    background: transparent;
+    color: var(--ink-soft);
+    cursor: pointer;
+  }
+  button:hover { color: var(--ink); border-color: var(--ink-soft); }
+  button.remove-level { color: var(--rust); border-color: var(--rust-bg); padding: 0.3rem 0.6rem; }
+  button.add-level { align-self: flex-start; }
+  button.add-limit { margin-top: 0.75rem; }
+
+  .save-bar {
+    position: sticky;
+    bottom: 0;
+    background: var(--paper);
+    border-top: 1px solid var(--paper-line);
+    padding: 1rem 0;
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+  }
+  button.save {
+    background: var(--gold);
+    color: #fff;
+    border-color: transparent;
+    padding: 0.55rem 1.3rem;
+    font-size: 0.92rem;
+  }
+  button.save:hover { background: #875D1A; color: #fff; }
+  button.save:disabled { opacity: 0.5; cursor: default; }
+  .save-status { font-size: 0.85rem; color: var(--ink-soft); }
+  .save-status.error { color: var(--rust); }
+  .save-status.ok { color: var(--gold); }
+
+  .new-category { display: grid; grid-template-columns: 1fr 9rem auto; gap: 0.6rem; align-items: center; margin-top: 0.75rem; }
+
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body>
+<div class="page">
+  <header class="top">
+    <h1>Regras do agente</h1>
+    <a class="back" href="/">&larr; Voltar ao livro</a>
+  </header>
+
+  <div id="loadError" class="save-status error"></div>
+
+  <section>
+    <h2>Limites por categoria</h2>
+    <p class="section-help">Valor máximo, em USDC, que o agente pode aprovar sozinho para cada categoria. Acima disso, a solicitação sempre é escalada para revisão humana, não importa o quanto o modelo confie nela.</p>
+    <div id="limitsList"></div>
+    <div class="new-category">
+      <input type="text" id="newCategoryName" placeholder="nova categoria (ex: travel_reimbursement)" />
+      <input type="number" id="newCategoryAmount" placeholder="limite USDC" step="0.01" />
+      <button type="button" id="addCategoryBtn">+ Adicionar</button>
+    </div>
+  </section>
+
+  <section>
+    <h2>Limites de decisão</h2>
+    <p class="section-help">Controlam quando o agente aprova sozinho, aprova com valor reduzido, ou escala para um humano.</p>
+    <div id="thresholdsList"></div>
+  </section>
+
+  <section>
+    <h2>Critérios de avaliação (Kev / Jev)</h2>
+    <p class="section-help">O texto de cada nível é o que o modelo de decisão lê para pontuar confiança, urgência e importância. Cada critério precisa de 2 a 10 níveis.</p>
+    <div id="rubricsList"></div>
+  </section>
+
+  <div class="save-bar">
+    <button type="button" class="save" id="saveBtn">Salvar alterações</button>
+    <span class="save-status" id="saveStatus"></span>
+  </div>
+</div>
+
+<script>
+let config = null;
+
+const THRESHOLD_LABELS = {
+  trust_min_auto_approve: ['Confiança mínima para aprovação automática', 'Acima deste valor (e com confiança suficiente do modelo), o pagamento é aprovado sem intervenção humana.'],
+  trust_min_confidence_for_auto_approve: ['Confiança do modelo exigida para aprovar sozinho', 'O modelo também precisa estar seguro da própria avaliação de confiança, não só dar uma nota alta.'],
+  trust_min_to_consider: ['Confiança mínima para sequer considerar', 'Abaixo deste valor, a solicitação é escalada imediatamente, sem checar mais nada.'],
+  importance_high: ['Importância considerada alta', 'Acima deste valor, habilita aprovação reduzida mesmo com confiança apenas média.'],
+  urgency_high: ['Urgência considerada alta', 'Mesmo efeito que importância alta: habilita aprovação reduzida.'],
+  reduced_amount_fraction: ['Fração liberada em aprovação reduzida', 'Em uma aprovação reduzida, libera esta fração do limite da categoria (ex: 0.5 = metade).'],
+};
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+function renderLimits() {
+  const el = document.getElementById('limitsList');
+  el.innerHTML = Object.entries(config.category_limits).map(([category, amount]) => `
+    <div class="limit-row" data-category="${escapeHtml(category)}">
+      <span class="row-label">${escapeHtml(category)}</span>
+      <input type="number" step="0.01" value="${amount}" data-field="limit" data-category="${escapeHtml(category)}" />
+    </div>`).join('');
+}
+
+function renderThresholds() {
+  const el = document.getElementById('thresholdsList');
+  el.innerHTML = Object.entries(config.thresholds).map(([name, value]) => {
+    const [label, help] = THRESHOLD_LABELS[name] || [name, ''];
+    return `
+      <div class="threshold-row">
+        <div>
+          <div class="row-label">${escapeHtml(label)}</div>
+          <div class="row-help">${escapeHtml(help)}</div>
+        </div>
+        <input type="number" step="0.01" min="0" max="1" value="${value}" data-field="threshold" data-name="${name}" />
+      </div>`;
+  }).join('');
+}
+
+function renderRubrics() {
+  const el = document.getElementById('rubricsList');
+  el.innerHTML = Object.entries(config.criteria).map(([question, levels]) => `
+    <div class="rubric-block" data-question="${question}">
+      <p class="rubric-title">${question}</p>
+      ${levels.map((text, i) => `
+        <div class="level-row">
+          <span class="level-index">[${i}]</span>
+          <textarea data-field="level" data-question="${question}" data-index="${i}">${escapeHtml(text)}</textarea>
+          <button type="button" class="remove-level" data-action="remove-level" data-question="${question}" data-index="${i}" ${levels.length <= 2 ? 'disabled title="mínimo de 2 níveis"' : ''}>remover</button>
+        </div>`).join('')}
+      <div class="rubric-actions">
+        <button type="button" class="add-level" data-action="add-level" data-question="${question}" ${levels.length >= 10 ? 'disabled title="máximo de 10 níveis"' : ''}>+ Adicionar nível</button>
+      </div>
+    </div>`).join('');
+}
+
+function renderAll() {
+  renderLimits();
+  renderThresholds();
+  renderRubrics();
+}
+
+async function loadConfig() {
+  try {
+    const res = await fetch('/api/config');
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    config = await res.json();
+    renderAll();
+  } catch (err) {
+    document.getElementById('loadError').textContent = 'Não foi possível carregar as regras: ' + err.message;
+  }
+}
+
+function readFormIntoConfig() {
+  document.querySelectorAll('input[data-field="limit"]').forEach(input => {
+    config.category_limits[input.dataset.category] = parseFloat(input.value) || 0;
+  });
+  document.querySelectorAll('input[data-field="threshold"]').forEach(input => {
+    config.thresholds[input.dataset.name] = parseFloat(input.value) || 0;
+  });
+  document.querySelectorAll('textarea[data-field="level"]').forEach(ta => {
+    config.criteria[ta.dataset.question][parseInt(ta.dataset.index)] = ta.value;
+  });
+}
+
+document.getElementById('addCategoryBtn').addEventListener('click', () => {
+  const nameInput = document.getElementById('newCategoryName');
+  const amountInput = document.getElementById('newCategoryAmount');
+  const name = nameInput.value.trim();
+  const amount = parseFloat(amountInput.value);
+  if (!name || isNaN(amount)) return;
+  readFormIntoConfig();
+  config.category_limits[name] = amount;
+  nameInput.value = '';
+  amountInput.value = '';
+  renderLimits();
+});
+
+document.getElementById('rubricsList').addEventListener('click', (ev) => {
+  const btn = ev.target.closest('button[data-action]');
+  if (!btn) return;
+  readFormIntoConfig();
+  const question = btn.dataset.question;
+  if (btn.dataset.action === 'add-level') {
+    if (config.criteria[question].length < 10) config.criteria[question].push('');
+  } else if (btn.dataset.action === 'remove-level') {
+    const index = parseInt(btn.dataset.index);
+    if (config.criteria[question].length > 2) config.criteria[question].splice(index, 1);
+  }
+  renderRubrics();
+});
+
+document.getElementById('saveBtn').addEventListener('click', async () => {
+  const statusEl = document.getElementById('saveStatus');
+  const saveBtn = document.getElementById('saveBtn');
+  readFormIntoConfig();
+  saveBtn.disabled = true;
+  statusEl.className = 'save-status';
+  statusEl.textContent = 'Salvando…';
+
+  try {
+    const res = await fetch('/api/config', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(config),
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error(body.detail ? JSON.stringify(body.detail) : `HTTP ${res.status}`);
+    }
+    config = await res.json();
+    renderAll();
+    statusEl.className = 'save-status ok';
+    statusEl.textContent = 'Salvo.';
+  } catch (err) {
+    statusEl.className = 'save-status error';
+    statusEl.textContent = 'Erro ao salvar: ' + err.message;
+  } finally {
+    saveBtn.disabled = false;
+  }
+});
+
+loadConfig();
+</script>
+</body>
+</html>

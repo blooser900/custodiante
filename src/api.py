@@ -14,6 +14,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel
 
 from src.audit.store import read_latest_per_request
+from src.config import RulesConfig, load_config, save_config
 from src.pipeline import apply_human_override, run_pipeline
 from src.requests.schema import PaymentRequest
 
@@ -40,6 +41,25 @@ class EscalationDecision(BaseModel):
 @app.get("/")
 def dashboard() -> FileResponse:
     return FileResponse(UI_DIR / "dashboard.html")
+
+
+@app.get("/settings")
+def settings_page() -> FileResponse:
+    return FileResponse(UI_DIR / "settings.html")
+
+
+@app.get("/api/config")
+def get_config() -> dict:
+    return load_config().model_dump()
+
+
+@app.put("/api/config")
+def update_config(config: RulesConfig) -> dict:
+    # RulesConfig's own validators (threshold ranges, 2-10 rubric levels)
+    # already ran by the time FastAPI builds this parameter -- an invalid
+    # body never reaches here, it gets a 422 automatically.
+    save_config(config)
+    return config.model_dump()
 
 
 @app.get("/api/stats")
