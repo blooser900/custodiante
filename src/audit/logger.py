@@ -33,6 +33,19 @@ class AuditEntry(BaseModel):
     # entry reflects the automatic pipeline only.
     human_review: str | None = None  # "approved" | "denied" | None
     reviewer: str | None = None
+    # Which decision engine produced `scores` (e.g. "kev", "jev", "mock").
+    # None on entries written before this field existed.
+    engine_name: str | None = None
+    # What happened to the on-chain payment, in a form a reviewer can read
+    # without digging through stdout:
+    #   "executed"       -- transfer completed
+    #   "failed"         -- a transfer was attempted and errored (see payment_detail)
+    #   "skipped"        -- approved, but not attempted (see payment_detail)
+    #   "not_applicable" -- no payment was due (escalated or denied)
+    # None on entries written before this field existed; fall back to
+    # `payment_executed` when reading those.
+    payment_status: str | None = None
+    payment_detail: str | None = None
 
 
 def build_entry(
@@ -41,6 +54,9 @@ def build_entry(
     policy_decision: PolicyDecision,
     payment_executed: bool,
     payment_result: dict | None = None,
+    payment_status: str | None = None,
+    payment_detail: str | None = None,
+    engine_name: str | None = None,
 ) -> AuditEntry:
     """Assemble a single audit entry from one full decision cycle.
 
@@ -58,4 +74,7 @@ def build_entry(
         payment_executed=payment_executed,
         transaction_id=(payment_result or {}).get("transaction_id"),
         tx_hash=(payment_result or {}).get("tx_hash"),
+        engine_name=engine_name,
+        payment_status=payment_status,
+        payment_detail=payment_detail,
     )

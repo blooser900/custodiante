@@ -88,8 +88,7 @@ def cmd_set_criteria_level(args: argparse.Namespace) -> int:
 
 
 def cmd_edit(args: argparse.Namespace) -> int:
-    # config/rules.yaml is versioned, so it exists in a normal checkout; the
-    # editor creates it if it was deleted by hand.
+    load_config()  # ensure the file exists before opening it
     editor = os.environ.get("EDITOR", "nano")
     subprocess.run([editor, str(CONFIG_PATH)])
     return cmd_validate(args)

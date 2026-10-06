@@ -25,6 +25,11 @@ def generate_markdown_report(path: str | None = None) -> str:
             lines.append(f"- Approved (reduced) amount: {entry.reduced_amount} USDC")
         lines.append(f"- Reason: {entry.reason}")
         lines.append(f"- Payment executed: {entry.payment_executed}")
+        # payment_status is None on entries written before the field existed.
+        if entry.payment_status in ("failed", "skipped"):
+            lines.append(f"- Payment {entry.payment_status}: {entry.payment_detail}")
+        if entry.engine_name:
+            lines.append(f"- Decision engine: {entry.engine_name}")
         if entry.payment_executed:
             lines.append(f"- Transaction ID: {entry.transaction_id}")
             lines.append(f"- Tx hash: {entry.tx_hash}")

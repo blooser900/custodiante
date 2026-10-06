@@ -19,7 +19,7 @@ import httpx
 
 from src.config import ScoringCriteria, load_config
 from src.decision_engine._http import post_with_retry
-from src.decision_engine.criteria import normalize_score
+from src.decision_engine.criteria import build_questions, build_state, normalize_score
 from src.decision_engine.engine import DecisionEngine, DecisionScores, ScoreResult
 from src.requests.schema import PaymentRequest
 
@@ -28,39 +28,15 @@ JEV_API_KEY = os.environ.get("JEV_API_KEY", "")
 JEV_MODEL = "jev-latest"
 
 
-def _build_state(request: PaymentRequest) -> dict:
-    """Build the structured state Jev evaluates the questions against."""
-    return {
-        "category": request.category,
-        "amount_usdc": request.amount_usdc,
-        "requester": request.requester,
-        "description": request.description,
-        "due_date": request.due_date.isoformat() if request.due_date else None,
-    }
-
-
-def _build_questions(criteria: ScoringCriteria) -> dict:
-    return {
-        "trust": {
-            "type": "score",
-            "instructions": "How legitimate and well-supported is this payment request?",
-            "criteria": criteria.trust,
-        },
-        "urgency": {
-            "type": "score",
-            "instructions": "How time-sensitive is this payment?",
-            "criteria": criteria.urgency,
-        },
-        "importance": {
-            "type": "score",
-            "instructions": "What is the impact on the business if this payment is NOT made?",
-            "criteria": criteria.importance,
-        },
-    }
+# Kept for backwards compatibility; the shared builders live in criteria.py.
+_build_state = build_state
+_build_questions = build_questions
 
 
 class JevDecisionEngine(DecisionEngine):
     """Calls the real Jev System One API to score a payment request."""
+
+    name = "jev"
 
     def __init__(
         self,
@@ -86,8 +62,8 @@ class JevDecisionEngine(DecisionEngine):
         criteria = load_config().criteria
         payload = {
             "model": self.model,
-            "state": _build_state(request),
-            "questions": _build_questions(criteria),
+            "state": build_state(request),
+            "questions": build_questions(criteria),
         }
         headers = {
             "Authorization": f"Bearer {self.api_key}",

@@ -15,7 +15,12 @@ from pydantic import BaseModel
 
 from src.audit.store import read_latest_per_request
 from src.config import RulesConfig, load_config, save_config
-from src.pipeline import apply_human_override, run_pipeline
+from src.pipeline import (
+    AlreadyReviewedError,
+    DuplicateRequestError,
+    apply_human_override,
+    run_pipeline,
+)
 from src.requests.schema import PaymentRequest
 
 app = FastAPI(title="Tameion Payment Agent")
@@ -74,6 +79,9 @@ def stats() -> dict:
         "pending_count": len(pending),
         "paid_total_usdc": round(paid_total, 2),
         "payments_executed": sum(1 for e in entries if e.payment_executed),
+        # Approved requests whose on-chain payment was attempted and failed:
+        # these need a human to look at them.
+        "payments_failed": sum(1 for e in entries if e.payment_status == "failed"),
     }
 
 
@@ -91,7 +99,10 @@ def pending_escalations() -> list[dict]:
 
 @app.post("/api/requests")
 def submit_request(request: PaymentRequest) -> dict:
-    entry = run_pipeline(request, verbose=False)
+    try:
+        entry = run_pipeline(request, verbose=False)
+    except DuplicateRequestError as e:
+        raise HTTPException(status_code=409, detail=str(e)) from e
     return entry.model_dump()
 
 
@@ -115,5 +126,10 @@ def decide_escalation(request_id: str, decision: EscalationDecision) -> dict:
             f"by {original.reviewer!r}.",
         )
 
-    entry = apply_human_override(original, decision.action, decision.reviewer)
+    try:
+        entry = apply_human_override(original, decision.action, decision.reviewer)
+    except AlreadyReviewedError as e:
+        # Lost a race with another reviewer between the check above and the
+        # lock inside apply_human_override.
+        raise HTTPException(status_code=409, detail=str(e)) from e
     return entry.model_dump()

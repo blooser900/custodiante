@@ -337,3 +337,54 @@ def test_put_config_rejects_too_few_rubric_levels():
     response = client.put("/api/config", json=payload)
 
     assert response.status_code == 422
+
+
+# --------------------------------------------------------------------------
+# Idempotency and payment-status reporting
+# --------------------------------------------------------------------------
+
+
+@patch("src.pipeline.append_entry")
+def test_submit_duplicate_request_id_returns_409(mock_append):
+    existing = make_entry("api-dup-1", "approve")
+    payload = {
+        "request_id": "api-dup-1",
+        "category": "operational_expense",
+        "amount_usdc": 50.0,
+        "requester": "ui-form",
+        "description": "Submitted twice.",
+    }
+
+    with patch("src.pipeline.read_latest_per_request", return_value=[existing]):
+        response = client.post("/api/requests", json=payload)
+
+    assert response.status_code == 409
+    assert "already processed" in response.json()["detail"]
+    mock_append.assert_not_called()
+
+
+@patch("src.pipeline.append_entry")
+@patch("src.api.read_latest_per_request")
+def test_decide_escalation_lost_race_returns_409(mock_read, mock_append):
+    pending = make_entry("r1", "escalate")
+    mock_read.return_value = [pending]
+    reviewed = make_entry("r1", "approve", human_review="approved", reviewer="ana")
+
+    # api.py's own check sees it pending, but by the time the pipeline takes
+    # the lock another reviewer has already acted.
+    with patch("src.pipeline.read_latest_per_request", return_value=[reviewed]):
+        response = client.post(
+            "/api/escalations/r1/decision", json={"action": "approve", "reviewer": "joão"}
+        )
+
+    assert response.status_code == 409
+    mock_append.assert_not_called()
+
+
+@patch("src.api.read_latest_per_request")
+def test_stats_counts_failed_payments(mock_read):
+    failed = make_entry("r1", "approve")
+    failed.payment_status = "failed"
+    mock_read.return_value = [failed, make_entry("r2", "approve", payment_executed=True)]
+
+    assert client.get("/api/stats").json()["payments_failed"] == 1

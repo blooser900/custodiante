@@ -225,6 +225,8 @@
   .badge.escalate { background: var(--rust-bg); color: var(--rust); }
   .badge.escalate.denied { background: var(--slate-bg); color: var(--slate); }
 
+  .pay-failed { color: var(--rust); font-weight: 600; cursor: help; }
+  .pay-skipped { color: var(--slate); cursor: help; }
   .tx-link { font-family: 'IBM Plex Mono', monospace; font-size: 0.8rem; }
 
   @media (prefers-reduced-motion: reduce) {
@@ -351,7 +353,8 @@ function renderStats(stats) {
   document.getElementById('statLine').innerHTML =
     `<strong>${stats.pending_count}</strong> pendente${stats.pending_count === 1 ? '' : 's'} · ` +
     `<strong>${fmtAmount(stats.paid_total_usdc)}</strong> pago · ` +
-    `${stats.total_requests} solicitaç${stats.total_requests === 1 ? 'ão' : 'ões'} no total`;
+    `${stats.total_requests} solicitaç${stats.total_requests === 1 ? 'ão' : 'ões'} no total` +
+    (stats.payments_failed ? ` · <strong class="pay-failed">${stats.payments_failed} pagamento${stats.payments_failed === 1 ? '' : 's'} com falha</strong>` : '');
 }
 
 function renderPending(items) {
@@ -399,6 +402,16 @@ function decisionBadge(e) {
   return `<span class="badge">${escapeHtml(e.decision)}</span>`;
 }
 
+function paymentCell(e) {
+  // payment_status is null on entries written before the field existed.
+  const status = e.payment_status || (e.payment_executed ? 'executed' : 'not_applicable');
+  const detail = escapeHtml(e.payment_detail || '');
+  if (status === 'executed') return 'Sim';
+  if (status === 'failed') return `<span class="pay-failed" title="${detail}">Falhou</span>`;
+  if (status === 'skipped') return `<span class="pay-skipped" title="${detail}">Não enviado</span>`;
+  return 'Não';
+}
+
 function renderLedger(entries) {
   const body = document.getElementById('ledgerBody');
   if (entries.length === 0) {
@@ -418,7 +431,7 @@ function renderLedger(entries) {
         <td>${CATEGORY_LABEL[r.category] || r.category}</td>
         <td class="num">${fmtAmount(amount)}</td>
         <td>${decisionBadge(e)}</td>
-        <td>${e.payment_executed ? 'Sim' : 'Não'}</td>
+        <td>${paymentCell(e)}</td>
         <td>${tx}</td>
       </tr>`;
   }).join('');

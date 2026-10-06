@@ -145,3 +145,193 @@ def test_rejected_destination_address_is_logged_not_raised(mock_append_entry):
 
     logged_entry = mock_append_entry.call_args[0][0]
     assert logged_entry.payment_executed is False
+
+
+# --------------------------------------------------------------------------
+# Payment outcome is recorded in the audit entry (not just printed)
+# --------------------------------------------------------------------------
+
+
+@patch("src.pipeline.append_entry")
+@patch.dict(os.environ, {"CIRCLE_API_KEY": "fake-key"})
+def test_executed_payment_is_marked_executed(mock_append_entry):
+    arc_client = MagicMock()
+    arc_client.send_payment.return_value = {"transaction_id": "tx-1", "tx_hash": "0x1"}
+
+    run_pipeline(make_request("0xdeadbeef"), engine=make_high_trust_engine(), arc_client=arc_client)
+
+    entry = mock_append_entry.call_args[0][0]
+    assert entry.payment_status == "executed"
+    assert entry.payment_detail is None
+
+
+@patch("src.pipeline.append_entry")
+@patch.dict(os.environ, {"CIRCLE_API_KEY": "fake-key"})
+def test_failed_payment_records_status_and_reason(mock_append_entry):
+    arc_client = MagicMock()
+    arc_client.send_payment.side_effect = RuntimeError("transfer DENIED")
+
+    run_pipeline(make_request("0xdeadbeef"), engine=make_high_trust_engine(), arc_client=arc_client)
+
+    entry = mock_append_entry.call_args[0][0]
+    assert entry.payment_status == "failed"
+    assert "transfer DENIED" in entry.payment_detail
+
+
+@patch("src.pipeline.append_entry")
+@patch("src.pipeline.ArcPaymentClient", side_effect=Exception("bad credentials"))
+@patch.dict(os.environ, {"CIRCLE_API_KEY": "fake-key"})
+def test_arc_client_construction_failure_is_recorded_not_raised(_mock_cls, mock_append_entry):
+    run_pipeline(make_request("0xdeadbeef"), engine=make_high_trust_engine())
+
+    entry = mock_append_entry.call_args[0][0]
+    assert entry.payment_status == "failed"
+    assert "bad credentials" in entry.payment_detail
+
+
+@patch("src.pipeline.append_entry")
+@patch.dict(os.environ, {"CIRCLE_API_KEY": "fake-key"})
+def test_skipped_payment_says_why_for_missing_wallet(mock_append_entry):
+    run_pipeline(make_request(None), engine=make_high_trust_engine(), arc_client=MagicMock())
+
+    entry = mock_append_entry.call_args[0][0]
+    assert entry.payment_status == "skipped"
+    assert "counterparty_wallet" in entry.payment_detail
+
+
+@patch("src.pipeline.append_entry")
+@patch.dict(os.environ, {}, clear=True)
+def test_skipped_payment_says_why_for_missing_api_key(mock_append_entry):
+    run_pipeline(make_request("0xdeadbeef"), engine=make_high_trust_engine(), arc_client=MagicMock())
+
+    entry = mock_append_entry.call_args[0][0]
+    assert entry.payment_status == "skipped"
+    assert "CIRCLE_API_KEY" in entry.payment_detail
+
+
+@patch("src.pipeline.append_entry")
+def test_escalated_request_has_no_payment_applicable(mock_append_entry):
+    engine = MagicMock()
+    engine.score.return_value = DecisionScores(
+        trust=ScoreResult(value=0.1, confidence=0.9),
+        urgency=ScoreResult(value=0.1, confidence=0.9),
+        importance=ScoreResult(value=0.1, confidence=0.9),
+    )
+
+    run_pipeline(make_request("0xdeadbeef"), engine=engine)
+
+    entry = mock_append_entry.call_args[0][0]
+    assert entry.decision == "escalate"
+    assert entry.payment_status == "not_applicable"
+
+
+@patch("src.pipeline.append_entry")
+def test_engine_name_is_recorded(mock_append_entry):
+    engine = make_high_trust_engine()
+    engine.name = "kev"
+
+    run_pipeline(make_request(None), engine=engine)
+
+    assert mock_append_entry.call_args[0][0].engine_name == "kev"
+
+
+# --------------------------------------------------------------------------
+# Idempotency: a request is decided and paid at most once
+# --------------------------------------------------------------------------
+
+
+@patch("src.pipeline.append_entry")
+@patch.dict(os.environ, {"CIRCLE_API_KEY": "fake-key"})
+def test_resubmitting_a_processed_request_id_is_rejected_before_any_payment(mock_append_entry):
+    from src.pipeline import DuplicateRequestError
+
+    engine = make_high_trust_engine()
+    arc_client = MagicMock()
+    existing = MagicMock()
+    existing.request.request_id = "main-test-1"
+
+    with patch("src.pipeline.read_latest_per_request", return_value=[existing]):
+        with pytest.raises(DuplicateRequestError):
+            run_pipeline(make_request("0xdeadbeef"), engine=engine, arc_client=arc_client)
+
+    engine.score.assert_not_called()
+    arc_client.send_payment.assert_not_called()
+    mock_append_entry.assert_not_called()
+
+
+@patch("src.pipeline.append_entry")
+@patch.dict(os.environ, {"CIRCLE_API_KEY": "fake-key"})
+def test_concurrent_submissions_of_the_same_request_pay_once(mock_append_entry):
+    """Simulates a double click: the real log is stood in for by a list that
+    append_entry writes to, so the second thread sees the first one's entry
+    only if the per-request lock really serializes check -> pay -> append.
+    """
+    import threading
+    import time
+
+    from src.pipeline import DuplicateRequestError
+
+    log: list = []
+    mock_append_entry.side_effect = log.append
+
+    arc_client = MagicMock()
+
+    def slow_payment(**_kwargs):
+        time.sleep(0.2)  # wide window for the second thread to slip through
+        return {"transaction_id": "tx-1", "tx_hash": "0x1"}
+
+    arc_client.send_payment.side_effect = slow_payment
+
+    results: list[str] = []
+
+    def submit():
+        try:
+            run_pipeline(
+                make_request("0xdeadbeef"),
+                engine=make_high_trust_engine(),
+                arc_client=arc_client,
+                verbose=False,
+            )
+            results.append("ok")
+        except DuplicateRequestError:
+            results.append("duplicate")
+
+    with patch("src.pipeline.read_latest_per_request", side_effect=lambda: list(log)):
+        threads = [threading.Thread(target=submit) for _ in range(2)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+    assert sorted(results) == ["duplicate", "ok"]
+    assert arc_client.send_payment.call_count == 1
+
+
+@patch("src.pipeline.append_entry")
+def test_human_override_rejects_a_request_already_reviewed(mock_append_entry):
+    from src.audit.logger import AuditEntry
+    from src.pipeline import AlreadyReviewedError, apply_human_override
+
+    scores = DecisionScores(
+        trust=ScoreResult(value=0.1, confidence=0.9),
+        urgency=ScoreResult(value=0.1, confidence=0.9),
+        importance=ScoreResult(value=0.1, confidence=0.9),
+    )
+    base = dict(
+        timestamp="2026-10-06T12:00:00+00:00",
+        request=make_request("0xdeadbeef"),
+        scores=scores,
+        decision="escalate",
+        reduced_amount=None,
+        reason="r",
+        payment_executed=False,
+    )
+    pending = AuditEntry(**base)
+    already_reviewed = AuditEntry(**base, human_review="approved", reviewer="ana")
+
+    # The caller holds a stale `pending` copy, but the log already shows a review.
+    with patch("src.pipeline.read_latest_per_request", return_value=[already_reviewed]):
+        with pytest.raises(AlreadyReviewedError):
+            apply_human_override(pending, "approve", "joão", arc_client=MagicMock())
+
+    mock_append_entry.assert_not_called()

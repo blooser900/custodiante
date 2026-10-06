@@ -6,6 +6,7 @@ Use this to investigate why a question's `confidence` looks off (e.g. 0.00)
 before assuming it's a bug in our own code.
 
 Usage:
+    python -m demo.seed_scenarios        # creates demo/scenarios/*.json
     python -m demo.inspect_scores demo/scenarios/demo-approve.json
 """
 
@@ -14,42 +15,44 @@ import sys
 
 import httpx
 
-from src.decision_engine.criteria import IMPORTANCE_CRITERIA, TRUST_CRITERIA, URGENCY_CRITERIA
+from src.config import load_config
+from src.decision_engine.criteria import SCORE_NAMES, build_questions, build_state
 from src.decision_engine.fallback_classifier import (
     FALLBACK_API_KEY,
     FALLBACK_API_URL,
     FALLBACK_MODEL,
-    _build_questions,
-    _build_state,
 )
 from src.requests.schema import PaymentRequest
 
 
+def build_payload(request: PaymentRequest) -> dict:
+    """Build the exact System-One payload the Kev engine would send."""
+    criteria = load_config().criteria
+    return {
+        "model": FALLBACK_MODEL,
+        "state": build_state(request),
+        "questions": build_questions(criteria),
+    }
+
+
 def inspect(request_path: str) -> None:
     with open(request_path, encoding="utf-8") as f:
-        data = json.load(f)
-    request = PaymentRequest.model_validate(data)
+        request = PaymentRequest.model_validate(json.load(f))
 
-    payload = {
-        "model": FALLBACK_MODEL,
-        "state": _build_state(request),
-        "questions": _build_questions(),
-    }
+    criteria = load_config().criteria
     headers = {"Authorization": f"Bearer {FALLBACK_API_KEY}", "Content-Type": "application/json"}
 
-    response = httpx.post(FALLBACK_API_URL, json=payload, headers=headers, timeout=15)
+    response = httpx.post(
+        FALLBACK_API_URL, json=build_payload(request), headers=headers, timeout=15
+    )
     response.raise_for_status()
     answers = response.json()["answers"]
 
     print(f"=== Raw answers for {request_path} ===\n")
-    for question_id, criteria in (
-        ("trust", TRUST_CRITERIA),
-        ("urgency", URGENCY_CRITERIA),
-        ("importance", IMPORTANCE_CRITERIA),
-    ):
+    for question_id in SCORE_NAMES:
         answer = answers[question_id]
         print(f"--- {question_id} ---")
-        print(f"criteria: {criteria}")
+        print(f"criteria: {getattr(criteria, question_id)}")
         print(f"raw score: {answer['score']}")
         print(f"confidence: {answer['confidence']}")
         print(f"legend: {answer.get('legend')}")

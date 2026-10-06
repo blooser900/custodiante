@@ -32,6 +32,11 @@ class DecisionScores(BaseModel):
 class DecisionEngine(ABC):
     """Common interface for any scoring backend."""
 
+    # Short identifier recorded in every audit entry, so a reviewer can tell
+    # which backend produced a given set of scores (e.g. a real engine vs.
+    # the demo mock). Subclasses should override it.
+    name: str = "unknown"
+
     @abstractmethod
     def score(self, request: PaymentRequest) -> DecisionScores:
         """Return trust, urgency, and importance scores for a payment request.

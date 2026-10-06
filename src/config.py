@@ -24,8 +24,8 @@ CONFIG_PATH = Path(__file__).resolve().parent.parent / "config" / "rules.yaml"
 
 # Defaults -- these are the exact values this project used when the rules
 # were hardcoded in policy/limits.py, policy/rules.py, and
-# decision_engine/criteria.py. config/rules.yaml is versioned in the repo and
-# ships with these same values, so behavior is unchanged until someone edits it.
+# decision_engine/criteria.py, so behavior is unchanged until someone edits
+# config/rules.yaml (which is generated from these defaults on first run).
 DEFAULT_CATEGORY_LIMITS = {
     "contractor_milestone": 2000.0,
     "supply_purchase": 1000.0,
@@ -102,17 +102,13 @@ def _default_config() -> RulesConfig:
 
 
 def load_config(path: Path = CONFIG_PATH) -> RulesConfig:
-    """Load the rules config.
-
-    config/rules.yaml is versioned, so it is present in any normal checkout and
-    this function never writes a file -- reading the rules happens on every
-    request, and a read must not have filesystem side effects. If the file is
-    missing anyway (deleted by hand), fall back to the in-code defaults in
-    memory rather than recreating it. Writing goes through save_config(), which
-    only scripts/manage_rules.py and the settings page call.
+    """Load the rules config, creating config/rules.yaml with defaults if
+    it doesn't exist yet (so there's always a real file to hand-edit).
     """
     if not path.exists():
-        return _default_config()
+        config = _default_config()
+        save_config(config, path)
+        return config
 
     with path.open(encoding="utf-8") as f:
         raw = yaml.safe_load(f) or {}

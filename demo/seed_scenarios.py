@@ -6,6 +6,7 @@ on camera (one auto-approve, one reduced approval, one escalation).
 """
 
 import json
+import time
 from pathlib import Path
 
 SCENARIOS_DIR = Path(__file__).parent / "scenarios"
@@ -41,11 +42,20 @@ SCENARIOS = [
 
 
 def write_scenarios() -> None:
+    """Write one JSON file per scenario.
+
+    File names are stable (demo-approve.json, ...), but each run stamps a
+    fresh suffix onto the request_id inside the file: the pipeline refuses
+    to process the same request_id twice, so without this the demo could
+    only be run once per audit log.
+    """
+    run_suffix = time.strftime("%m%d-%H%M%S")
     SCENARIOS_DIR.mkdir(parents=True, exist_ok=True)
     for scenario in SCENARIOS:
         path = SCENARIOS_DIR / f"{scenario['request_id']}.json"
-        path.write_text(json.dumps(scenario, indent=2), encoding="utf-8")
-        print(f"Wrote {path}")
+        unique = {**scenario, "request_id": f"{scenario['request_id']}-{run_suffix}"}
+        path.write_text(json.dumps(unique, indent=2), encoding="utf-8")
+        print(f"Wrote {path} (request_id={unique['request_id']})")
 
 
 if __name__ == "__main__":

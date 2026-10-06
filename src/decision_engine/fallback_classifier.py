@@ -38,7 +38,7 @@ import httpx
 
 from src.config import ScoringCriteria, load_config
 from src.decision_engine._http import post_with_retry
-from src.decision_engine.criteria import normalize_score
+from src.decision_engine.criteria import build_questions, build_state, normalize_score
 from src.decision_engine.engine import DecisionEngine, DecisionScores, ScoreResult
 from src.requests.schema import PaymentRequest
 
@@ -49,38 +49,9 @@ FALLBACK_API_KEY = os.environ.get("FALLBACK_API_KEY", "local")
 FALLBACK_MODEL = os.environ.get("FALLBACK_MODEL", "kev-latest")
 
 
-def _build_state(request: PaymentRequest) -> dict:
-    """Build the structured state the engine evaluates the questions against."""
-    return {
-        "category": request.category,
-        "amount_usdc": request.amount_usdc,
-        "requester": request.requester,
-        "description": request.description,
-        "due_date": request.due_date.isoformat() if request.due_date else None,
-    }
-
-
-def _build_questions(criteria: ScoringCriteria) -> dict:
-    # Identical shape to jev_client.py's questions on purpose: this engine
-    # and the real Jev engine must be interchangeable behind the same
-    # interface, and both read the same configured rubric.
-    return {
-        "trust": {
-            "type": "score",
-            "instructions": "How legitimate and well-supported is this payment request?",
-            "criteria": criteria.trust,
-        },
-        "urgency": {
-            "type": "score",
-            "instructions": "How time-sensitive is this payment?",
-            "criteria": criteria.urgency,
-        },
-        "importance": {
-            "type": "score",
-            "instructions": "What is the impact on the business if this payment is NOT made?",
-            "criteria": criteria.importance,
-        },
-    }
+# Kept for backwards compatibility; the shared builders live in criteria.py.
+_build_state = build_state
+_build_questions = build_questions
 
 
 class TypeSafeCompatibleEngine(DecisionEngine):
@@ -91,6 +62,8 @@ class TypeSafeCompatibleEngine(DecisionEngine):
     instead) or against a future self-hosted alternative that implements
     the same contract.
     """
+
+    name = "kev"
 
     def __init__(
         self,
@@ -113,8 +86,8 @@ class TypeSafeCompatibleEngine(DecisionEngine):
         criteria = load_config().criteria
         payload = {
             "model": self.model,
-            "state": _build_state(request),
-            "questions": _build_questions(criteria),
+            "state": build_state(request),
+            "questions": build_questions(criteria),
         }
         headers = {
             "Authorization": f"Bearer {self.api_key}",
