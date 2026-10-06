@@ -8,6 +8,8 @@ dependencies = [
     "python-dotenv",
     "httpx",
     "circle-developer-controlled-wallets",
+    "fastapi",
+    "uvicorn[standard]",
 ]
 
 [project.optional-dependencies]

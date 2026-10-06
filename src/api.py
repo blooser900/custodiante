@@ -1,0 +1,99 @@
+"""HTTP API for the dashboard (ui/dashboard.html).
+
+Run with:
+    uvicorn src.api:app --reload --port 8000
+
+Then open http://127.0.0.1:8000/
+"""
+
+from pathlib import Path
+from typing import Literal
+
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import FileResponse, JSONResponse
+from pydantic import BaseModel
+
+from src.audit.store import read_latest_per_request
+from src.pipeline import apply_human_override, run_pipeline
+from src.requests.schema import PaymentRequest
+
+app = FastAPI(title="Tameion Payment Agent")
+
+UI_DIR = Path(__file__).resolve().parent.parent / "ui"
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+    # Without this, any failure inside the decision engine or Arc client
+    # (a missing API key, a network error, Jev/Kev being unreachable) shows
+    # up to the dashboard as an opaque "Internal Server Error" with no
+    # detail, since FastAPI's default handler doesn't expose exception
+    # messages. The dashboard's error handling expects a `detail` field.
+    return JSONResponse(status_code=502, content={"detail": str(exc)})
+
+
+class EscalationDecision(BaseModel):
+    action: Literal["approve", "deny"]
+    reviewer: str
+
+
+@app.get("/")
+def dashboard() -> FileResponse:
+    return FileResponse(UI_DIR / "dashboard.html")
+
+
+@app.get("/api/stats")
+def stats() -> dict:
+    entries = read_latest_per_request()
+    pending = [e for e in entries if e.decision == "escalate" and e.human_review is None]
+    paid_total = sum(
+        (e.reduced_amount or e.request.amount_usdc) for e in entries if e.payment_executed
+    )
+    return {
+        "total_requests": len(entries),
+        "pending_count": len(pending),
+        "paid_total_usdc": round(paid_total, 2),
+        "payments_executed": sum(1 for e in entries if e.payment_executed),
+    }
+
+
+@app.get("/api/requests/latest")
+def latest_requests() -> list[dict]:
+    return [e.model_dump() for e in read_latest_per_request()]
+
+
+@app.get("/api/escalations/pending")
+def pending_escalations() -> list[dict]:
+    entries = read_latest_per_request()
+    pending = [e for e in entries if e.decision == "escalate" and e.human_review is None]
+    return [e.model_dump() for e in pending]
+
+
+@app.post("/api/requests")
+def submit_request(request: PaymentRequest) -> dict:
+    entry = run_pipeline(request, verbose=False)
+    return entry.model_dump()
+
+
+@app.post("/api/escalations/{request_id}/decision")
+def decide_escalation(request_id: str, decision: EscalationDecision) -> dict:
+    entries = read_latest_per_request()
+    original = next((e for e in entries if e.request.request_id == request_id), None)
+
+    if original is None:
+        raise HTTPException(status_code=404, detail=f"No request found with id {request_id!r}.")
+    if original.decision != "escalate":
+        raise HTTPException(
+            status_code=409,
+            detail=f"Request {request_id!r} is not in an escalated state (current: "
+            f"{original.decision!r}); nothing to review.",
+        )
+    if original.human_review is not None:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Request {request_id!r} was already {original.human_review} "
+            f"by {original.reviewer!r}.",
+        )
+
+    entry = apply_human_override(original, decision.action, decision.reviewer)
+    return entry.model_dump()
