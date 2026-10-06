@@ -1,29 +1,10 @@
-"""Shared rubrics for the trust / urgency / importance questions.
+"""Score normalization for System-One decision engines.
 
-Used by every DecisionEngine implementation (Jev, Kev, or any other
-TypeSafe-System-One-compatible backend) so all of them are scored against
-the exact same wording, and are therefore comparable.
+The actual rubric text (trust/urgency/importance level descriptions) used
+to live here as hardcoded constants. It now lives in config/rules.yaml,
+loaded via src.config.load_config() -- see jev_client.py and
+fallback_classifier.py, which build their `questions` payload from it.
 """
-
-# Each rubric is an ordered list of level descriptions, low to high.
-# For an N-level rubric, the raw Score answer lands in [0, N - 1].
-TRUST_CRITERIA = [
-    "Likely fraudulent, malformed, or contradicts known facts about the requester",
-    "Plausible but has unexplained gaps: vague justification, no supporting detail",
-    "Clearly legitimate: well-documented, consistent with the requester's history",
-]
-
-URGENCY_CRITERIA = [
-    "No real time pressure; could wait weeks with no consequence",
-    "Some time pressure; a delay of days would cause friction",
-    "Time-critical; missing the deadline causes real, immediate harm",
-]
-
-IMPORTANCE_CRITERIA = [
-    "Low impact if this payment is never made",
-    "Moderate impact: inconvenience or a minor loss of trust/service",
-    "High impact: significant financial loss, service outage, or relationship damage",
-]
 
 
 def normalize_score(raw_score: float, num_levels: int) -> float:

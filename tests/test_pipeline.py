@@ -6,9 +6,37 @@ mocked (no real Jev/Kev server, no real Circle credentials needed).
 import os
 from unittest.mock import MagicMock, patch
 
+import pytest
+
+from src.config import RulesConfig, ScoringCriteria, Thresholds
 from src.decision_engine.engine import DecisionScores, ScoreResult
 from src.pipeline import run_pipeline
 from src.requests.schema import PaymentRequest, RequestCategory
+
+
+def fake_rules_config() -> RulesConfig:
+    return RulesConfig(
+        category_limits={"operational_expense": 500.0, "other": 200.0},
+        thresholds=Thresholds(
+            trust_min_auto_approve=0.75,
+            trust_min_confidence_for_auto_approve=0.7,
+            trust_min_to_consider=0.4,
+            importance_high=0.7,
+            urgency_high=0.7,
+            reduced_amount_fraction=0.5,
+        ),
+        criteria=ScoringCriteria(trust=["a", "b"], urgency=["a", "b"], importance=["a", "b"]),
+    )
+
+
+@pytest.fixture(autouse=True)
+def mock_config():
+    config = fake_rules_config()
+    with (
+        patch("src.policy.rules.load_config", return_value=config),
+        patch("src.policy.limits.load_config", return_value=config),
+    ):
+        yield config
 
 
 def make_request(counterparty_wallet: str | None) -> PaymentRequest:

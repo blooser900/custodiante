@@ -26,17 +26,19 @@ Run Kev locally, e.g.:
     uv run --extra serve python -m kev.serve --run jaredpalmer/kev-4b --port 8009
 
 Then point this client at it via FALLBACK_API_URL / FALLBACK_MODEL below.
+
+The rubric text and number of levels for each scored question come from
+config/rules.yaml (see src/config.py), same as jev_client.py -- the two
+engines must stay interchangeable behind the DecisionEngine interface.
 """
 
 import os
 
+import httpx
+
+from src.config import ScoringCriteria, load_config
 from src.decision_engine._http import post_with_retry
-from src.decision_engine.criteria import (
-    IMPORTANCE_CRITERIA,
-    TRUST_CRITERIA,
-    URGENCY_CRITERIA,
-    normalize_score,
-)
+from src.decision_engine.criteria import normalize_score
 from src.decision_engine.engine import DecisionEngine, DecisionScores, ScoreResult
 from src.requests.schema import PaymentRequest
 
@@ -58,24 +60,25 @@ def _build_state(request: PaymentRequest) -> dict:
     }
 
 
-def _build_questions() -> dict:
-    # Identical to jev_client.py's questions on purpose: this engine and the
-    # real Jev engine must be interchangeable behind the same interface.
+def _build_questions(criteria: ScoringCriteria) -> dict:
+    # Identical shape to jev_client.py's questions on purpose: this engine
+    # and the real Jev engine must be interchangeable behind the same
+    # interface, and both read the same configured rubric.
     return {
         "trust": {
             "type": "score",
             "instructions": "How legitimate and well-supported is this payment request?",
-            "criteria": TRUST_CRITERIA,
+            "criteria": criteria.trust,
         },
         "urgency": {
             "type": "score",
             "instructions": "How time-sensitive is this payment?",
-            "criteria": URGENCY_CRITERIA,
+            "criteria": criteria.urgency,
         },
         "importance": {
             "type": "score",
             "instructions": "What is the impact on the business if this payment is NOT made?",
-            "criteria": IMPORTANCE_CRITERIA,
+            "criteria": criteria.importance,
         },
     }
 
@@ -107,30 +110,39 @@ class TypeSafeCompatibleEngine(DecisionEngine):
                 "rejected as a malformed header before the request is sent."
             )
 
+        criteria = load_config().criteria
         payload = {
             "model": self.model,
             "state": _build_state(request),
-            "questions": _build_questions(),
+            "questions": _build_questions(criteria),
         }
         headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
         }
 
-        response = post_with_retry(self.api_url, payload, headers)
+        try:
+            response = post_with_retry(self.api_url, payload, headers)
+        except httpx.HTTPError as e:
+            raise RuntimeError(
+                f"Could not reach the decision engine at {self.api_url}. "
+                "Is Kev running? Start it with:\n"
+                "  uv run --extra serve python -m kev.serve "
+                f"--run jaredpalmer/kev-4b --port 8009\n(original error: {e})"
+            ) from e
         answers = response.json()["answers"]
 
         return DecisionScores(
             trust=ScoreResult(
-                value=normalize_score(answers["trust"]["score"], len(TRUST_CRITERIA)),
+                value=normalize_score(answers["trust"]["score"], len(criteria.trust)),
                 confidence=answers["trust"]["confidence"],
             ),
             urgency=ScoreResult(
-                value=normalize_score(answers["urgency"]["score"], len(URGENCY_CRITERIA)),
+                value=normalize_score(answers["urgency"]["score"], len(criteria.urgency)),
                 confidence=answers["urgency"]["confidence"],
             ),
             importance=ScoreResult(
-                value=normalize_score(answers["importance"]["score"], len(IMPORTANCE_CRITERIA)),
+                value=normalize_score(answers["importance"]["score"], len(criteria.importance)),
                 confidence=answers["importance"]["confidence"],
             ),
         )

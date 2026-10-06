@@ -3,19 +3,40 @@
 These do not hit the real Jev API -- they mock httpx.post so we can check
 that the request is shaped correctly and, more importantly, that the raw
 Jev score (which lands in [0, num_levels - 1]) is normalized to [0, 1]
-before it reaches the policy layer.
+before it reaches the policy layer. The rubric criteria used are a fixed
+test fixture (not the real config/rules.yaml), via a mocked load_config.
 """
 
 from unittest.mock import MagicMock, patch
 
-from src.decision_engine.criteria import (
-    IMPORTANCE_CRITERIA,
-    TRUST_CRITERIA,
-    URGENCY_CRITERIA,
-    normalize_score,
-)
+import httpx
+import pytest
+
+from src.config import RulesConfig, ScoringCriteria, Thresholds
+from src.decision_engine.criteria import normalize_score
 from src.decision_engine.jev_client import JevDecisionEngine
 from src.requests.schema import PaymentRequest, RequestCategory
+
+TRUST_CRITERIA = ["bad", "ok", "good"]
+URGENCY_CRITERIA = ["low", "medium", "high"]
+IMPORTANCE_CRITERIA = ["minor", "moderate", "major"]
+
+
+def fake_rules_config() -> RulesConfig:
+    return RulesConfig(
+        category_limits={"other": 200.0},
+        thresholds=Thresholds(
+            trust_min_auto_approve=0.75,
+            trust_min_confidence_for_auto_approve=0.7,
+            trust_min_to_consider=0.4,
+            importance_high=0.7,
+            urgency_high=0.7,
+            reduced_amount_fraction=0.5,
+        ),
+        criteria=ScoringCriteria(
+            trust=TRUST_CRITERIA, urgency=URGENCY_CRITERIA, importance=IMPORTANCE_CRITERIA
+        ),
+    )
 
 
 def make_request() -> PaymentRequest:
@@ -36,21 +57,21 @@ def fake_jev_response(trust_score: float, urgency_score: float, importance_score
             "trust": {
                 "type": "score",
                 "score": trust_score,
-                "legend": {str(i): c for i, c in enumerate(TRUST_CRITERIA)},
+                "legend": dict(enumerate(TRUST_CRITERIA)),
                 "probabilities": {},
                 "confidence": 0.85,
             },
             "urgency": {
                 "type": "score",
                 "score": urgency_score,
-                "legend": {str(i): c for i, c in enumerate(URGENCY_CRITERIA)},
+                "legend": dict(enumerate(URGENCY_CRITERIA)),
                 "probabilities": {},
                 "confidence": 0.80,
             },
             "importance": {
                 "type": "score",
                 "score": importance_score,
-                "legend": {str(i): c for i, c in enumerate(IMPORTANCE_CRITERIA)},
+                "legend": dict(enumerate(IMPORTANCE_CRITERIA)),
                 "probabilities": {},
                 "confidence": 0.90,
             },
@@ -66,8 +87,10 @@ def test_normalize_maps_raw_score_to_zero_one_range():
     assert normalize_score(2.0, 3) == 1.0
 
 
+@patch("src.decision_engine.jev_client.load_config")
 @patch("src.decision_engine._http.httpx.post")
-def test_score_normalizes_and_maps_confidence(mock_post):
+def test_score_normalizes_and_maps_confidence(mock_post, mock_load_config):
+    mock_load_config.return_value = fake_rules_config()
     mock_response = MagicMock()
     mock_response.status_code = 200
     mock_response.json.return_value = fake_jev_response(
@@ -84,8 +107,10 @@ def test_score_normalizes_and_maps_confidence(mock_post):
     assert scores.trust.confidence == 0.85
 
 
+@patch("src.decision_engine.jev_client.load_config")
 @patch("src.decision_engine._http.httpx.post")
-def test_score_sends_expected_request_shape(mock_post):
+def test_score_sends_expected_request_shape(mock_post, mock_load_config):
+    mock_load_config.return_value = fake_rules_config()
     mock_response = MagicMock()
     mock_response.status_code = 200
     mock_response.json.return_value = fake_jev_response(1.0, 1.0, 1.0)
@@ -102,3 +127,20 @@ def test_score_sends_expected_request_shape(mock_post):
     assert payload["questions"]["trust"]["type"] == "score"
     assert payload["questions"]["trust"]["criteria"] == TRUST_CRITERIA
     assert kwargs["headers"]["Authorization"] == "Bearer fake-key"
+
+
+@patch("src.decision_engine.jev_client.load_config")
+@patch("src.decision_engine._http.httpx.post")
+def test_score_wraps_connection_error_with_clear_message(mock_post, mock_load_config):
+    mock_load_config.return_value = fake_rules_config()
+    mock_post.side_effect = httpx.ConnectError("Connection refused")
+
+    engine = JevDecisionEngine(api_key="fake-key")
+    with pytest.raises(RuntimeError, match="Could not reach the Jev API"):
+        engine.score(make_request())
+
+
+def test_score_raises_clear_error_when_api_key_missing():
+    engine = JevDecisionEngine(api_key="")
+    with pytest.raises(RuntimeError, match="JEV_API_KEY is not set"):
+        engine.score(make_request())

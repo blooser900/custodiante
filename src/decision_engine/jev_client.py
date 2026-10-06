@@ -3,9 +3,11 @@
 Jev's System One endpoint evaluates a `state` against typed `questions`
 (Noul, Choice, or Score) and returns calibrated answers -- never free text.
 
-We model trust / urgency / importance as three Score questions, each with a
-3-level rubric (see criteria.py). The raw score for an N-level rubric lands
-in [0, N-1] (and can be fractional), so we normalize it to [0, 1] before
+We model trust / urgency / importance as three Score questions. The rubric
+text and number of levels for each come from config/rules.yaml (see
+src/config.py), not from a hardcoded constant, so a business can tune them
+without touching code. The raw score for an N-level rubric lands in
+[0, N-1] (and can be fractional), so we normalize it to [0, 1] before
 handing it to the policy layer, which expects normalized values.
 
 Official API reference: https://docs.typesafe.ai/api
@@ -13,13 +15,11 @@ Official API reference: https://docs.typesafe.ai/api
 
 import os
 
+import httpx
+
+from src.config import ScoringCriteria, load_config
 from src.decision_engine._http import post_with_retry
-from src.decision_engine.criteria import (
-    IMPORTANCE_CRITERIA,
-    TRUST_CRITERIA,
-    URGENCY_CRITERIA,
-    normalize_score,
-)
+from src.decision_engine.criteria import normalize_score
 from src.decision_engine.engine import DecisionEngine, DecisionScores, ScoreResult
 from src.requests.schema import PaymentRequest
 
@@ -39,22 +39,22 @@ def _build_state(request: PaymentRequest) -> dict:
     }
 
 
-def _build_questions() -> dict:
+def _build_questions(criteria: ScoringCriteria) -> dict:
     return {
         "trust": {
             "type": "score",
             "instructions": "How legitimate and well-supported is this payment request?",
-            "criteria": TRUST_CRITERIA,
+            "criteria": criteria.trust,
         },
         "urgency": {
             "type": "score",
             "instructions": "How time-sensitive is this payment?",
-            "criteria": URGENCY_CRITERIA,
+            "criteria": criteria.urgency,
         },
         "importance": {
             "type": "score",
             "instructions": "What is the impact on the business if this payment is NOT made?",
-            "criteria": IMPORTANCE_CRITERIA,
+            "criteria": criteria.importance,
         },
     }
 
@@ -83,30 +83,37 @@ class JevDecisionEngine(DecisionEngine):
                 "fallback engine."
             )
 
+        criteria = load_config().criteria
         payload = {
             "model": self.model,
             "state": _build_state(request),
-            "questions": _build_questions(),
+            "questions": _build_questions(criteria),
         }
         headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
         }
 
-        response = post_with_retry(self.api_url, payload, headers)
+        try:
+            response = post_with_retry(self.api_url, payload, headers)
+        except httpx.HTTPError as e:
+            raise RuntimeError(
+                f"Could not reach the Jev API at {self.api_url}. Check your "
+                f"network connection and JEV_API_KEY. (original error: {e})"
+            ) from e
         answers = response.json()["answers"]
 
         return DecisionScores(
             trust=ScoreResult(
-                value=normalize_score(answers["trust"]["score"], len(TRUST_CRITERIA)),
+                value=normalize_score(answers["trust"]["score"], len(criteria.trust)),
                 confidence=answers["trust"]["confidence"],
             ),
             urgency=ScoreResult(
-                value=normalize_score(answers["urgency"]["score"], len(URGENCY_CRITERIA)),
+                value=normalize_score(answers["urgency"]["score"], len(criteria.urgency)),
                 confidence=answers["urgency"]["confidence"],
             ),
             importance=ScoreResult(
-                value=normalize_score(answers["importance"]["score"], len(IMPORTANCE_CRITERIA)),
+                value=normalize_score(answers["importance"]["score"], len(criteria.importance)),
                 confidence=answers["importance"]["confidence"],
             ),
         )
