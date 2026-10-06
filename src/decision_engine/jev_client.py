@@ -73,6 +73,16 @@ class JevDecisionEngine(DecisionEngine):
         self.model = model
 
     def score(self, request: PaymentRequest) -> DecisionScores:
+        if not self.api_key:
+            # Fail with a clear message here, rather than letting httpx
+            # reject an "Authorization: Bearer " header with an empty
+            # token as a raw protocol error further down.
+            raise RuntimeError(
+                "JEV_API_KEY is not set. Add it to .env, or switch "
+                "DEFAULT_ENGINE_FACTORY in src/pipeline.py to the Kev "
+                "fallback engine."
+            )
+
         payload = {
             "model": self.model,
             "state": _build_state(request),

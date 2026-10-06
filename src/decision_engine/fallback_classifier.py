@@ -100,6 +100,13 @@ class TypeSafeCompatibleEngine(DecisionEngine):
         self.model = model
 
     def score(self, request: PaymentRequest) -> DecisionScores:
+        if not self.api_key:
+            raise RuntimeError(
+                "FALLBACK_API_KEY is empty. Kev's local server doesn't "
+                "check it by default, but an empty Bearer token is still "
+                "rejected as a malformed header before the request is sent."
+            )
+
         payload = {
             "model": self.model,
             "state": _build_state(request),
