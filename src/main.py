@@ -1,87 +1,28 @@
-"""Entrypoint: orchestrates one full request -> decision -> payment cycle.
+"""CLI entrypoint: runs one payment request through the pipeline.
 
 Usage:
     python -m src.main --input path/to/request.json
+
+The actual logic lives in src/pipeline.py, shared with the HTTP API
+(src/api.py) so the two never drift apart.
 """
 
 import argparse
 import json
-import os
 import sys
 
-# Must run before the src.* imports below: jev_client.py and
-# fallback_classifier.py read their config as module-level constants at
-# import time (e.g. JEV_API_KEY = os.environ.get(...)), so .env has to be
-# loaded into the environment first, or they'd permanently capture empty
-# defaults regardless of what's in .env.
-from dotenv import load_dotenv
-
-load_dotenv()
-
-from src.audit.logger import build_entry
-from src.audit.store import append_entry
-from src.decision_engine.jev_client import JevDecisionEngine
-from src.decision_engine.fallback_classifier import TypeSafeCompatibleEngine
-from src.payments.arc_client import ArcPaymentClient
-from src.policy.rules import Decision, apply_policy
+from src.pipeline import run_pipeline
 from src.requests.schema import PaymentRequest
-
-# Swap this line to switch engines -- both implement the same interface.
-DEFAULT_ENGINE_FACTORY = JevDecisionEngine
-# DEFAULT_ENGINE_FACTORY = TypeSafeCompatibleEngine  # Kev, self-hosted
 
 
 def process_request(request: PaymentRequest, engine=None, arc_client=None) -> None:
-    """Run a single payment request through the full pipeline."""
-    engine = engine or DEFAULT_ENGINE_FACTORY()
-
-    scores = engine.score(request)
-    policy_decision = apply_policy(request, scores)
-
-    payment_executed = False
-    payment_result: dict | None = None
-    approved = policy_decision.decision in (Decision.APPROVE, Decision.APPROVE_REDUCED)
-
-    if approved and request.counterparty_wallet and os.environ.get("CIRCLE_API_KEY"):
-        arc_client = arc_client or ArcPaymentClient()
-        amount = policy_decision.reduced_amount or request.amount_usdc
-        try:
-            payment_result = arc_client.send_payment(
-                destination_wallet=request.counterparty_wallet,
-                amount_usdc=amount,
-                memo=f"payment for request {request.request_id}",
-            )
-            payment_executed = True
-            print(
-                f"  -> transaction_id={payment_result['transaction_id']} "
-                f"tx_hash={payment_result['tx_hash']}"
-            )
-        except (RuntimeError, ValueError) as e:
-            # Approved by policy, but the on-chain transfer itself failed
-            # (denied, timed out, network error). Logged, not silently
-            # swallowed -- the audit trail below still records this request
-            # as approved-but-not-executed.
-            print(f"Payment execution failed for {request.request_id}: {e}")
-    elif approved and (not request.counterparty_wallet or not os.environ.get("CIRCLE_API_KEY")):
-        print(
-            f"Request {request.request_id} was approved, but on-chain execution "
-            "was skipped (missing counterparty_wallet or CIRCLE_API_KEY)."
-        )
-
-    entry = build_entry(
-        request=request,
-        scores=scores,
-        policy_decision=policy_decision,
-        payment_executed=payment_executed,
-        payment_result=payment_result,
-    )
-    append_entry(entry)
-
-    print(f"Decision for {request.request_id}: {policy_decision.decision.value}")
-    print(f"Reason: {policy_decision.reason}")
+    """Thin CLI wrapper -- kept for backwards compatibility with existing
+    tests and call sites. Prefer src.pipeline.run_pipeline for new code.
+    """
+    run_pipeline(request, engine=engine, arc_client=arc_client, verbose=True)
 
 
-def main() -> None:
+def main() -> int:
     parser = argparse.ArgumentParser(description="Process a payment request.")
     parser.add_argument("--input", required=True, help="Path to a JSON payment request.")
     args = parser.parse_args()
@@ -91,6 +32,7 @@ def main() -> None:
 
     request = PaymentRequest.model_validate(data)
     process_request(request)
+    return 0
 
 
 if __name__ == "__main__":
