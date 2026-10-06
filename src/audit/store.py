@@ -22,6 +22,21 @@ def append_entry(entry: AuditEntry, path: str = AUDIT_LOG_PATH) -> None:
         f.write(entry.model_dump_json() + "\n")
 
 
+def read_latest_per_request(path: str = AUDIT_LOG_PATH) -> list[AuditEntry]:
+    """Collapse the append-only log to one entry per request_id: the most
+    recent one. A request escalated and later approved/denied by a human
+    will have multiple entries in the log; callers that want "current
+    status" (the dashboard, the pending-escalations queue) want this view,
+    not the raw history.
+
+    Returned newest-first by timestamp.
+    """
+    latest: dict[str, AuditEntry] = {}
+    for entry in read_all_entries(path):
+        latest[entry.request.request_id] = entry  # later entries overwrite earlier ones
+    return sorted(latest.values(), key=lambda e: e.timestamp, reverse=True)
+
+
 def read_all_entries(path: str = AUDIT_LOG_PATH) -> list[AuditEntry]:
     """Read every audit entry back from the log file, in order."""
     log_path = Path(path)

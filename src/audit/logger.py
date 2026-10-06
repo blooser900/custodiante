@@ -28,6 +28,11 @@ class AuditEntry(BaseModel):
     # own console -- which defeats the point of having an audit trail at all.
     transaction_id: str | None = None
     tx_hash: str | None = None
+    # Set only on an entry created by a human override of an escalated
+    # request (see src/pipeline.py:apply_human_override). None means this
+    # entry reflects the automatic pipeline only.
+    human_review: str | None = None  # "approved" | "denied" | None
+    reviewer: str | None = None
 
 
 def build_entry(
