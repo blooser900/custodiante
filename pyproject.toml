@@ -11,6 +11,7 @@ dependencies = [
     "fastapi",
     "uvicorn[standard]",
     "pyyaml",
+    "web3",
 ]
 
 [project.optional-dependencies]
