@@ -6,6 +6,7 @@ Run with:
 Then open http://127.0.0.1:8000/
 """
 
+from dataclasses import asdict
 from pathlib import Path
 from typing import Literal
 
@@ -14,6 +15,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel
 
 from src.audit.store import read_latest_per_request
+from src.audit.verify import verify_chain
 from src.config import RulesConfig, load_config, save_config
 from src.pipeline import (
     AlreadyReviewedError,
@@ -83,6 +85,12 @@ def stats() -> dict:
         # these need a human to look at them.
         "payments_failed": sum(1 for e in entries if e.payment_status == "failed"),
     }
+
+
+@app.get("/api/audit/verify")
+def verify_audit_log() -> dict:
+    """Check the audit log's hash chain; `ok` is False if it was tampered with."""
+    return asdict(verify_chain())
 
 
 @app.get("/api/requests/latest")

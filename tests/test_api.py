@@ -388,3 +388,15 @@ def test_stats_counts_failed_payments(mock_read):
     mock_read.return_value = [failed, make_entry("r2", "approve", payment_executed=True)]
 
     assert client.get("/api/stats").json()["payments_failed"] == 1
+
+
+@patch("src.api.verify_chain")
+def test_audit_verify_endpoint_reports_chain_state(mock_verify):
+    from src.audit.verify import ChainReport
+
+    mock_verify.return_value = ChainReport(False, 3, 2, 0, 2, "Line 2 was modified after it was written.")
+
+    data = client.get("/api/audit/verify").json()
+
+    assert data["ok"] is False
+    assert data["bad_line"] == 2

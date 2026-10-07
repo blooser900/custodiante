@@ -46,6 +46,12 @@ class AuditEntry(BaseModel):
     # `payment_executed` when reading those.
     payment_status: str | None = None
     payment_detail: str | None = None
+    # Hash chain (set by src/audit/store.py at write time, never by callers):
+    # `entry_hash` covers this entry's content plus `prev_hash`, and
+    # `prev_hash` is the previous entry's `entry_hash`. Editing or removing
+    # any past line breaks every hash after it. None on legacy entries.
+    prev_hash: str | None = None
+    entry_hash: str | None = None
 
 
 def build_entry(

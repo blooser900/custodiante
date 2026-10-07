@@ -225,6 +225,9 @@
   .badge.escalate { background: var(--rust-bg); color: var(--rust); }
   .badge.escalate.denied { background: var(--slate-bg); color: var(--slate); }
 
+  .integrity { font-size: 0.8rem; margin-top: 0.35rem; }
+  .integrity.ok { color: var(--slate); }
+  .integrity.bad { color: var(--rust); font-weight: 600; }
   .pay-failed { color: var(--rust); font-weight: 600; cursor: help; }
   .pay-skipped { color: var(--slate); cursor: help; }
   .tx-link { font-family: 'IBM Plex Mono', monospace; font-size: 0.8rem; }
@@ -247,6 +250,7 @@
     <h1>Livro de pagamentos</h1>
     <div style="display:flex; align-items:baseline; gap:1.25rem;">
       <div class="stat-line" id="statLine">Carregando…</div>
+      <div class="integrity" id="integrity"></div>
       <a href="/settings" style="font-size:0.85rem; color:var(--ink-soft); text-decoration:none;">Regras &rarr;</a>
     </div>
   </header>
@@ -349,6 +353,18 @@ async function fetchJSON(url, options) {
   return res.json();
 }
 
+function renderIntegrity(report) {
+  const el = document.getElementById('integrity');
+  if (!el) return;
+  if (report.ok) {
+    el.className = 'integrity ok';
+    el.textContent = report.chained ? `Log íntegro · ${report.chained} entradas verificadas` : 'Log vazio';
+  } else {
+    el.className = 'integrity bad';
+    el.textContent = `Log ADULTERADO · ${report.message}`;
+  }
+}
+
 function renderStats(stats) {
   document.getElementById('statLine').innerHTML =
     `<strong>${stats.pending_count}</strong> pendente${stats.pending_count === 1 ? '' : 's'} · ` +
@@ -438,11 +454,13 @@ function renderLedger(entries) {
 }
 
 async function refresh() {
-  const [stats, pending, ledger] = await Promise.all([
+  const [stats, pending, ledger, integrity] = await Promise.all([
     fetchJSON('/api/stats'),
     fetchJSON('/api/escalations/pending'),
     fetchJSON('/api/requests/latest'),
+    fetchJSON('/api/audit/verify'),
   ]);
+  renderIntegrity(integrity);
   renderStats(stats);
   renderPending(pending);
   renderLedger(ledger);
