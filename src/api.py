@@ -17,10 +17,15 @@ from pydantic import BaseModel
 from src.audit.store import read_latest_per_request
 from src.audit.verify import verify_chain
 from src.config import RulesConfig, load_config, save_config
+from src.payments.escrow import ChainReader, EscrowError
 from src.pipeline import (
     AlreadyReviewedError,
     DuplicateRequestError,
+    MilestoneError,
+    MilestoneNotFoundError,
+    advance_milestone,
     apply_human_override,
+    provider_is_ours,
     run_pipeline,
 )
 from src.requests.schema import PaymentRequest
@@ -43,6 +48,14 @@ async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONR
 class EscalationDecision(BaseModel):
     action: Literal["approve", "deny"]
     reviewer: str
+
+
+class MilestoneAction(BaseModel):
+    reviewer: str = "operator"
+    reason: str | None = None
+
+# Escrow states in which funds are still locked or the job is still open.
+ACTIVE_ESCROW_STATUSES = ("open", "funded", "submitted")
 
 
 @app.get("/")
@@ -84,6 +97,17 @@ def stats() -> dict:
         # Approved requests whose on-chain payment was attempted and failed:
         # these need a human to look at them.
         "payments_failed": sum(1 for e in entries if e.payment_status == "failed"),
+        # Milestone escrow: USDC currently locked in contracts (funded, not
+        # yet released or refunded), and how many milestones are in flight.
+        "escrowed_total_usdc": round(
+            sum(
+                (e.reduced_amount or e.request.amount_usdc)
+                for e in entries
+                if e.payment_status == "escrowed"
+            ),
+            2,
+        ),
+        "milestones_active": sum(1 for e in entries if e.escrow_status in ACTIVE_ESCROW_STATUSES),
     }
 
 
@@ -139,5 +163,51 @@ def decide_escalation(request_id: str, decision: EscalationDecision) -> dict:
     except AlreadyReviewedError as e:
         # Lost a race with another reviewer between the check above and the
         # lock inside apply_human_override.
+        raise HTTPException(status_code=409, detail=str(e)) from e
+    return entry.model_dump()
+
+
+def _chain_reader() -> ChainReader:
+    """Read-only chain access; a function so tests can substitute it."""
+    return ChainReader()
+
+
+@app.get("/api/milestones/active")
+def active_milestones() -> list[dict]:
+    """Milestones whose escrow is still open or holding funds, each with the
+    job's live on-chain status (the chain, not our log, is the truth: a real
+    contractor submits their deliverable without telling us)."""
+    entries = [e for e in read_latest_per_request() if e.escrow_status in ACTIVE_ESCROW_STATUSES]
+    if not entries:
+        return []
+    reader = _chain_reader()
+    items = []
+    for entry in entries:
+        item = entry.model_dump()
+        # Lets the UI offer "simulate delivery" only when we hold the
+        # contractor's key (a demo setup); a real contractor submits alone.
+        item["demo_contractor"] = provider_is_ours(entry.request)
+        try:
+            job = reader.get_job(entry.escrow_job_id)
+            item["chain_status"] = job.status
+            item["chain_budget_usdc"] = job.budget_usdc
+        except Exception as e:  # noqa: BLE001 -- an RPC hiccup must not hide the milestone
+            item["chain_status"] = None
+            item["chain_error"] = str(e)
+        items.append(item)
+    return items
+
+
+@app.post("/api/milestones/{request_id}/{action}")
+def milestone_action(
+    request_id: str,
+    action: Literal["fund", "deliver", "release", "reject"],
+    body: MilestoneAction = MilestoneAction(),
+) -> dict:
+    try:
+        entry = advance_milestone(request_id, action, reviewer=body.reviewer, reason=body.reason)
+    except MilestoneNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    except (MilestoneError, EscrowError) as e:
         raise HTTPException(status_code=409, detail=str(e)) from e
     return entry.model_dump()

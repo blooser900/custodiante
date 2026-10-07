@@ -58,29 +58,48 @@ A `request_id` is processed at most once: resubmitting it returns HTTP 409
 from both approving one escalation. Use a fresh `request_id` per payment;
 `demo.seed_scenarios` stamps a new suffix on each run for this reason.
 
-### On-chain escrow (contractor milestones) -- IN PROGRESS
+### On-chain escrow (contractor milestones)
 
-`src/payments/escrow.py` drives the ERC-8183 job contract that Arc already
-deploys on testnet (no Solidity of our own). Our treasury is the client and
-evaluator; the contractor is the provider. Funds are locked in the contract
-on `fund` and released only when we `complete` the job, or refunded on
-`reject` / `claimRefund`.
+For `contractor_milestone` requests the policy's approval no longer sends a
+transfer: it opens a job in the ERC-8183 contract that Arc already deploys on
+testnet (no Solidity of our own), and the money stays locked until a human
+confirms the work. Our treasury is the client and evaluator; the contractor
+is the provider.
 
-Safety property: the contractor sets the job's budget, so it is untrusted.
-`fund` compares it to the amount the policy approved and refuses to send any
-transaction on a mismatch; it also approves exactly that amount, never more.
-
-**Status:** the client is implemented and unit-tested against fakes. It has
-NOT yet been run on the real testnet, and it is NOT yet wired into the
-pipeline or dashboard. `reject` and `claimRefund` follow the ERC-8183 draft
-and are unverified on the deployed contract. Validate with:
-
-```bash
-python -m scripts.escrow_smoke --scenario happy    # also: reject, expire
+```
+approved ─► createJob ─► (contractor) setBudget ─► fund ─► (contractor) submit
+                                                      │                  │
+                                              reject ─┴─► refunded       └─► release ─► paid
 ```
 
-(needs `ESCROW_PROVIDER_WALLET_ADDRESS`: a second wallet you control, with a
-little testnet USDC for gas).
+- The dashboard's **Milestones em escrow** panel shows each job with its live
+  on-chain status and offers fund / release / reject. Release is only enabled
+  once the chain says the contractor has submitted.
+- Every step appends an entry to the audit log (`escrow_job_id`,
+  `escrow_status`: `open` -> `funded` -> `submitted` -> `released` | `rejected`).
+  Money counts as *paid* only on release; locked funds show separately.
+- A human approving an escalated milestone also goes through escrow.
+- `ESCROW_ENABLED=false` switches back to direct payment.
+
+Safety property: the contractor sets the job's budget, so it is untrusted.
+`fund` compares it to the amount the policy approved and sends nothing on a
+mismatch; it also approves exactly that amount, never more. Only the request
+id is written on-chain, never the description.
+
+**Demo mode.** If `ESCROW_PROVIDER_WALLET_ADDRESS` equals the request's
+`counterparty_wallet`, we control the contractor's key: the pipeline sets the
+budget and funds the escrow immediately, and the dashboard offers "Simular
+entrega". With a real contractor they set the budget and submit themselves.
+
+**Verification status.** Validated on Arc testnet with
+`python -m scripts.escrow_smoke`: the full happy path (create, budget, fund,
+submit, complete) and the reject/refund path, from an EOA treasury wallet.
+NOT yet verified: `claimRefund` (the `--scenario expire` run); the app does
+not use it, since `reject` also refunds a funded job. Not yet exercised live
+through the pipeline itself (only through fakes); do one real run first.
+
+A failed on-chain step raises and logs nothing: the escrow stays where it
+was and the operator can retry.
 
 ### Tamper-evident audit log
 

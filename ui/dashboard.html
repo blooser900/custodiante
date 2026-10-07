@@ -225,6 +225,9 @@
   .badge.escalate { background: var(--rust-bg); color: var(--rust); }
   .badge.escalate.denied { background: var(--slate-bg); color: var(--slate); }
 
+  .chain-status { font-family: 'IBM Plex Mono', monospace; font-size: 0.78rem; color: var(--ink-soft); }
+  .actions button.release { background: var(--gold); color: #fff; border-color: var(--gold); }
+  .actions button:disabled { opacity: 0.45; cursor: not-allowed; }
   .integrity { font-size: 0.8rem; margin-top: 0.35rem; }
   .integrity.ok { color: var(--slate); }
   .integrity.bad { color: var(--rust); font-weight: 600; }
@@ -264,6 +267,12 @@
       </div>
     </div>
     <div id="pendingList"></div>
+  </section>
+
+  <section>
+    <h2>Milestones em escrow</h2>
+    <p class="pending-meta">O valor fica travado no contrato até você confirmar a entrega.</p>
+    <div id="milestoneList"></div>
   </section>
 
   <section>
@@ -369,6 +378,7 @@ function renderStats(stats) {
   document.getElementById('statLine').innerHTML =
     `<strong>${stats.pending_count}</strong> pendente${stats.pending_count === 1 ? '' : 's'} · ` +
     `<strong>${fmtAmount(stats.paid_total_usdc)}</strong> pago · ` +
+    (stats.escrowed_total_usdc ? `<strong>${fmtAmount(stats.escrowed_total_usdc)}</strong> em escrow · ` : '') +
     `${stats.total_requests} solicitaç${stats.total_requests === 1 ? 'ão' : 'ões'} no total` +
     (stats.payments_failed ? ` · <strong class="pay-failed">${stats.payments_failed} pagamento${stats.payments_failed === 1 ? '' : 's'} com falha</strong>` : '');
 }
@@ -423,6 +433,9 @@ function paymentCell(e) {
   const status = e.payment_status || (e.payment_executed ? 'executed' : 'not_applicable');
   const detail = escapeHtml(e.payment_detail || '');
   if (status === 'executed') return 'Sim';
+  if (status === 'escrow_open') return '<span class="pay-skipped" title="Job criado; aguardando o contratado definir o orçamento.">Escrow aberto</span>';
+  if (status === 'escrowed') return '<span class="pay-skipped" title="Valor travado no contrato, ainda não liberado.">Em escrow</span>';
+  if (status === 'refunded') return 'Reembolsado';
   if (status === 'failed') return `<span class="pay-failed" title="${detail}">Falhou</span>`;
   if (status === 'skipped') return `<span class="pay-skipped" title="${detail}">Não enviado</span>`;
   return 'Não';
@@ -453,13 +466,58 @@ function renderLedger(entries) {
   }).join('');
 }
 
+function milestoneButtons(m) {
+  const id = escapeHtml(m.request.request_id);
+  const chain = m.chain_status;  // null when the RPC read failed
+  const buttons = [];
+  if (m.escrow_status === 'open' || chain === 'Open') {
+    buttons.push(`<button data-ms="fund" data-id="${id}">Financiar</button>`);
+  }
+  if (m.demo_contractor && chain === 'Funded') {
+    buttons.push(`<button data-ms="deliver" data-id="${id}" title="Demo: assina como o contratado">Simular entrega</button>`);
+  }
+  const canRelease = chain === 'Submitted';
+  buttons.push(`<button class="release" data-ms="release" data-id="${id}" ${canRelease ? '' : 'disabled'} title="${canRelease ? '' : 'Só é possível liberar depois que o contratado entregar.'}">Liberar pagamento</button>`);
+  buttons.push(`<button class="deny" data-ms="reject" data-id="${id}">Rejeitar e reembolsar</button>`);
+  return buttons.join('');
+}
+
+function renderMilestones(items) {
+  const el = document.getElementById('milestoneList');
+  if (items.length === 0) {
+    el.innerHTML = '<p class="empty">Nenhum milestone em escrow.</p>';
+    return;
+  }
+  el.innerHTML = items.map(m => {
+    const r = m.request;
+    const amount = m.reduced_amount ?? r.amount_usdc;
+    const chain = m.chain_status
+      ? `na cadeia: ${escapeHtml(m.chain_status)}`
+      : `cadeia indisponível${m.chain_error ? ' (' + escapeHtml(m.chain_error) + ')' : ''}`;
+    return `
+      <div class="pending-row" data-id="${escapeHtml(r.request_id)}">
+        <div class="pending-main">
+          <p class="pending-title">${escapeHtml(r.requester)} · ${CATEGORY_LABEL[r.category] || r.category}</p>
+          <p class="pending-meta">${escapeHtml(r.description)}</p>
+          <p class="chain-status">job #${escapeHtml(m.escrow_job_id)} · ${chain}</p>
+        </div>
+        <div>
+          <p class="amount" style="text-align:right">${fmtAmount(amount)}</p>
+          <div class="actions">${milestoneButtons(m)}</div>
+        </div>
+      </div>`;
+  }).join('');
+}
+
 async function refresh() {
-  const [stats, pending, ledger, integrity] = await Promise.all([
+  const [stats, pending, ledger, integrity, milestones] = await Promise.all([
     fetchJSON('/api/stats'),
     fetchJSON('/api/escalations/pending'),
     fetchJSON('/api/requests/latest'),
     fetchJSON('/api/audit/verify'),
+    fetchJSON('/api/milestones/active'),
   ]);
+  renderMilestones(milestones);
   renderIntegrity(integrity);
   renderStats(stats);
   renderPending(pending);
@@ -491,6 +549,34 @@ document.getElementById('pendingList').addEventListener('click', async (ev) => {
   } catch (err) {
     alert('Não foi possível registrar a decisão: ' + err.message);
     row.querySelectorAll('button').forEach(b => b.disabled = false);
+  }
+});
+
+const MILESTONE_CONFIRM = {
+  release: 'Liberar o pagamento ao contratado? Esta ação é definitiva.',
+  reject: 'Rejeitar o milestone e reembolsar o valor travado?',
+};
+
+document.getElementById('milestoneList').addEventListener('click', async (ev) => {
+  const btn = ev.target.closest('button[data-ms]');
+  if (!btn || btn.disabled) return;
+  const action = btn.dataset.ms;
+  if (MILESTONE_CONFIRM[action] && !confirm(MILESTONE_CONFIRM[action])) return;
+  const reviewer = document.getElementById('reviewerName').value.trim() || 'operador';
+
+  const row = btn.closest('.pending-row');
+  row.querySelectorAll('button').forEach(b => b.disabled = true);
+  btn.textContent = 'Aguardando a blockchain…';
+  try {
+    await fetchJSON(`/api/milestones/${encodeURIComponent(btn.dataset.id)}/${action}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ reviewer }),
+    });
+    await refresh();
+  } catch (err) {
+    alert('Não foi possível concluir a ação: ' + err.message);
+    await refresh();
   }
 });
 

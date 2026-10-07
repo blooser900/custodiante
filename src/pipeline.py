@@ -23,8 +23,9 @@ from src.decision_engine.fallback_classifier import TypeSafeCompatibleEngine
 from src.decision_engine.jev_client import JevDecisionEngine
 from src.decision_engine.mock_engine import MockDecisionEngine
 from src.payments.arc_client import ArcPaymentClient
+from src.payments.escrow import EscrowClient, EscrowError
 from src.policy.rules import Decision, apply_policy
-from src.requests.schema import PaymentRequest
+from src.requests.schema import PaymentRequest, RequestCategory
 
 # Engines selectable through the DECISION_ENGINE environment variable.
 ENGINES: dict[str, type[DecisionEngine]] = {
@@ -62,6 +63,14 @@ class AlreadyReviewedError(RuntimeError):
     """An escalated request was already approved or denied by a human."""
 
 
+class MilestoneError(RuntimeError):
+    """A milestone action is not valid for the request's current state."""
+
+
+class MilestoneNotFoundError(MilestoneError):
+    """No audit entry exists for the given request_id."""
+
+
 # One lock per request_id. Serializes "check the log -> pay -> append to the
 # log" for the same request, so two simultaneous submissions (a double click,
 # a client retry) cannot both pass the check and both pay. Requests with
@@ -80,9 +89,14 @@ def _lock_for(request_id: str) -> threading.Lock:
 class PaymentOutcome:
     """What happened when we tried to pay an approved request."""
 
-    status: str  # "executed" | "failed" | "skipped"
+    # "executed" | "failed" | "skipped" for plain transfers; milestone escrow
+    # adds "escrow_open" (job created, contractor has not set a budget yet),
+    # "escrowed" (funds locked in the contract), "refunded".
+    status: str
     detail: str | None = None
     result: dict | None = None
+    escrow_job_id: int | None = None
+    escrow_status: str | None = None
 
     @property
     def executed(self) -> bool:
@@ -118,6 +132,75 @@ def _attempt_payment(
     return PaymentOutcome("executed", result=result)
 
 
+def escrow_enabled() -> bool:
+    """Kill switch: ESCROW_ENABLED=false pays milestones directly instead."""
+    return os.environ.get("ESCROW_ENABLED", "true").strip().lower() not in ("0", "false", "no", "off")
+
+
+def _uses_escrow(request: PaymentRequest) -> bool:
+    return request.category == RequestCategory.CONTRACTOR_MILESTONE and escrow_enabled()
+
+
+def provider_is_ours(request: PaymentRequest) -> bool:
+    """True when the contractor's wallet is one WE control (demo setups).
+
+    Only then can we sign the contractor's side of the job (set the budget,
+    submit the deliverable). With a real contractor they do both themselves.
+    """
+    ours = os.environ.get("ESCROW_PROVIDER_WALLET_ADDRESS", "")
+    return bool(ours) and ours.lower() == (request.counterparty_wallet or "").lower()
+
+
+def _open_escrow(request: PaymentRequest, amount_usdc: float, escrow=None) -> PaymentOutcome:
+    """Open a milestone escrow for an already-approved request.
+
+    Never raises (same contract as _attempt_payment). The job's on-chain
+    description is only the request id: no free text from the request is
+    written to a public chain.
+    """
+    if not request.counterparty_wallet:
+        return PaymentOutcome("skipped", "No counterparty_wallet on the request.")
+    if not os.environ.get("CIRCLE_API_KEY"):
+        return PaymentOutcome("skipped", "CIRCLE_API_KEY is not set.")
+
+    job_id: int | None = None
+    try:
+        escrow = escrow or EscrowClient()
+        job_id, create_tx = escrow.create_job(request.counterparty_wallet, f"tameion:{request.request_id}")
+        if not provider_is_ours(request):
+            return PaymentOutcome(
+                "escrow_open",
+                f"Escrow job {job_id} created; waiting for the contractor to set the budget.",
+                result=create_tx,
+                escrow_job_id=job_id,
+                escrow_status="open",
+            )
+        escrow.set_budget(job_id, amount_usdc, provider_wallet=request.counterparty_wallet)
+        fund_tx = escrow.fund(job_id, amount_usdc)
+    except Exception as e:  # noqa: BLE001 -- recorded, never raised (see _attempt_payment)
+        # If the job was already created it still exists on-chain: keep its
+        # id so an operator can retry funding or reject it from the dashboard.
+        return PaymentOutcome(
+            "failed",
+            f"{type(e).__name__}: {e}",
+            escrow_job_id=job_id,
+            escrow_status="open" if job_id is not None else None,
+        )
+    return PaymentOutcome(
+        "escrowed", result=fund_tx, escrow_job_id=job_id, escrow_status="funded"
+    )
+
+
+def _settle(
+    request: PaymentRequest, amount_usdc: float, memo: str, arc_client=None, escrow=None
+) -> PaymentOutcome:
+    """Pay an approved request: via escrow for contractor milestones,
+    otherwise as a direct transfer."""
+    if _uses_escrow(request):
+        return _open_escrow(request, amount_usdc, escrow=escrow)
+    return _attempt_payment(request, amount_usdc, memo, arc_client)
+
+
 def _engine_name(engine) -> str:
     name = getattr(engine, "name", None)
     return name if isinstance(name, str) else type(engine).__name__
@@ -128,6 +211,7 @@ def run_pipeline(
     engine=None,
     arc_client=None,
     verbose: bool = True,
+    escrow=None,
 ) -> AuditEntry:
     """Run one payment request through scoring, policy, and (if approved)
     on-chain execution, then persist and return the resulting audit entry.
@@ -149,11 +233,12 @@ def run_pipeline(
         approved = policy_decision.decision in (Decision.APPROVE, Decision.APPROVE_REDUCED)
         outcome: PaymentOutcome | None = None
         if approved:
-            outcome = _attempt_payment(
+            outcome = _settle(
                 request,
                 amount_usdc=policy_decision.reduced_amount or request.amount_usdc,
                 memo=f"payment for request {request.request_id}",
                 arc_client=arc_client,
+                escrow=escrow,
             )
 
         entry = build_entry(
@@ -165,6 +250,8 @@ def run_pipeline(
             payment_status=outcome.status if outcome else "not_applicable",
             payment_detail=outcome.detail if outcome else None,
             engine_name=_engine_name(engine),
+            escrow_job_id=outcome.escrow_job_id if outcome else None,
+            escrow_status=outcome.escrow_status if outcome else None,
         )
         append_entry(entry)
 
@@ -174,6 +261,8 @@ def run_pipeline(
                 f"  -> transaction_id={outcome.result['transaction_id']} "
                 f"tx_hash={outcome.result['tx_hash']}"
             )
+        elif outcome and outcome.escrow_job_id is not None and outcome.status != "failed":
+            print(f"  -> escrow job {outcome.escrow_job_id}: {outcome.status}")
         elif outcome:
             print(f"  -> payment {outcome.status} for {request.request_id}: {outcome.detail}")
         print(f"Decision for {request.request_id}: {policy_decision.decision.value}")
@@ -187,6 +276,7 @@ def apply_human_override(
     action: str,
     reviewer: str,
     arc_client=None,
+    escrow=None,
 ) -> AuditEntry:
     """Record a human's approve/deny decision on a previously escalated
     request, executing the payment on approval even though it exceeded the
@@ -221,11 +311,15 @@ def apply_human_override(
 
         outcome: PaymentOutcome | None = None
         if action == "approve":
-            outcome = _attempt_payment(
+            # A human approving an escalated milestone still goes through
+            # escrow: overriding the policy's limits must not also bypass
+            # the hold-until-verified protection.
+            outcome = _settle(
                 request,
                 amount_usdc=request.amount_usdc,
                 memo=f"human-approved payment for request {request.request_id}",
                 arc_client=arc_client,
+                escrow=escrow,
             )
             if not outcome.executed:
                 reason += f" Payment {outcome.status}: {outcome.detail}"
@@ -245,6 +339,98 @@ def apply_human_override(
             engine_name=original_entry.engine_name,
             payment_status=outcome.status if outcome else "not_applicable",
             payment_detail=outcome.detail if outcome else None,
+            escrow_job_id=outcome.escrow_job_id if outcome else None,
+            escrow_status=outcome.escrow_status if outcome else None,
+        )
+        append_entry(entry)
+    return entry
+
+
+# --------------------------------------------------------------------------
+# Milestone escrow: actions after the job is opened
+# --------------------------------------------------------------------------
+
+# action -> (escrow_status values our log must show for it to be allowed).
+# "release"/"reject" accept "funded" too because a real contractor submits
+# on-chain without telling us: our log can lag the chain, and the contract
+# (checked by EscrowClient before sending anything) is the final judge.
+_MILESTONE_ALLOWED = {
+    "fund": ("open",),
+    "deliver": ("funded",),
+    "release": ("funded", "submitted"),
+    "reject": ("open", "funded", "submitted"),
+}
+MILESTONE_ACTIONS = tuple(_MILESTONE_ALLOWED)
+
+
+def advance_milestone(
+    request_id: str,
+    action: str,
+    reviewer: str = "operator",
+    reason: str | None = None,
+    escrow=None,
+) -> AuditEntry:
+    """Move a milestone escrow forward and record the step in the audit log.
+
+    fund     retry locking the funds (e.g. the contractor set the budget late)
+    deliver  DEMO ONLY: submit the deliverable as the contractor, possible
+             only when the contractor's wallet is one we control
+    release  verified: release the escrowed funds to the contractor
+    reject   not delivered: refund the escrow to the treasury
+
+    Each step appends a new entry (the log stays append-only). A transaction
+    that fails raises and logs nothing: the escrow is exactly where it was
+    and the operator can retry.
+    """
+    if action not in _MILESTONE_ALLOWED:
+        raise ValueError(f"action must be one of {MILESTONE_ACTIONS}, got {action!r}")
+
+    with _lock_for(request_id):
+        current = next(
+            (e for e in read_latest_per_request() if e.request.request_id == request_id), None
+        )
+        if current is None:
+            raise MilestoneNotFoundError(f"No request {request_id!r} in the audit log.")
+        if current.escrow_job_id is None or current.escrow_status not in _MILESTONE_ALLOWED[action]:
+            raise MilestoneError(
+                f"Cannot {action} request {request_id!r}: escrow status is "
+                f"{current.escrow_status!r}, expected {' or '.join(_MILESTONE_ALLOWED[action])}."
+            )
+
+        request = current.request
+        job_id = current.escrow_job_id
+        amount = current.reduced_amount or request.amount_usdc
+        escrow = escrow or EscrowClient()
+
+        updates: dict = {}
+        if action == "fund":
+            tx = escrow.fund(job_id, amount)
+            updates = dict(escrow_status="funded", payment_status="escrowed",
+                           reason=f"Escrow funded: {amount} USDC locked in job {job_id}.")
+        elif action == "deliver":
+            if not provider_is_ours(request):
+                raise MilestoneError("The contractor's wallet is not one we control; they must submit themselves.")
+            tx = escrow.submit(job_id, f"deliverable:{request_id}", provider_wallet=request.counterparty_wallet)
+            updates = dict(escrow_status="submitted", payment_status="escrowed",
+                           reason=f"Contractor submitted the deliverable for job {job_id} (simulated).")
+        elif action == "release":
+            tx = escrow.complete(job_id, reason or f"milestone verified by {reviewer}")
+            updates = dict(escrow_status="released", payment_status="executed", payment_executed=True,
+                           reason=f"Milestone verified by {reviewer}; escrow released to the contractor.")
+        else:  # reject
+            tx = escrow.reject(job_id, reason or f"milestone rejected by {reviewer}")
+            updates = dict(escrow_status="rejected", payment_status="refunded",
+                           reason=f"Milestone rejected by {reviewer}; escrow refunded to the treasury.")
+
+        entry = current.model_copy(
+            update={
+                **updates,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "reviewer": reviewer,
+                "payment_detail": None,
+                "transaction_id": tx["transaction_id"],
+                "tx_hash": tx["tx_hash"],
+            }
         )
         append_entry(entry)
     return entry

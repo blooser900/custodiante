@@ -46,6 +46,12 @@ class AuditEntry(BaseModel):
     # `payment_executed` when reading those.
     payment_status: str | None = None
     payment_detail: str | None = None
+    # Milestone escrow (see src/payments/escrow.py). `escrow_job_id` is the
+    # ERC-8183 job holding (or about to hold) the funds; `escrow_status`
+    # tracks our side of its lifecycle: open -> funded -> submitted ->
+    # released | rejected. Both None for requests that were paid directly.
+    escrow_job_id: int | None = None
+    escrow_status: str | None = None
     # Hash chain (set by src/audit/store.py at write time, never by callers):
     # `entry_hash` covers this entry's content plus `prev_hash`, and
     # `prev_hash` is the previous entry's `entry_hash`. Editing or removing
@@ -63,6 +69,8 @@ def build_entry(
     payment_status: str | None = None,
     payment_detail: str | None = None,
     engine_name: str | None = None,
+    escrow_job_id: int | None = None,
+    escrow_status: str | None = None,
 ) -> AuditEntry:
     """Assemble a single audit entry from one full decision cycle.
 
@@ -83,4 +91,6 @@ def build_entry(
         engine_name=engine_name,
         payment_status=payment_status,
         payment_detail=payment_detail,
+        escrow_job_id=escrow_job_id,
+        escrow_status=escrow_status,
     )
