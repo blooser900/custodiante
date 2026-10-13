@@ -11,11 +11,12 @@ from unittest.mock import MagicMock, patch
 import pytest
 from fastapi.testclient import TestClient
 
+from tests.conftest import MANAGER_AUTH
 from src.api import app
-from src.audit.logger import AuditEntry
+from src.audit.logger import AuditEntry, FailedAttempt
 from src.config import RulesConfig, ScoringCriteria, Thresholds
 from src.decision_engine.engine import DecisionScores, ScoreResult
-from src.payments.escrow import EscrowError
+from src.payments.escrow import EscrowBudgetMismatchError, EscrowError
 from src.pipeline import (
     MilestoneError,
     MilestoneNotFoundError,
@@ -24,8 +25,10 @@ from src.pipeline import (
     run_pipeline,
 )
 from src.requests.schema import PaymentRequest, RequestCategory
+from tests.rules_fixtures import category_limits, thresholds
 
-client = TestClient(app)
+
+client = TestClient(app, headers=MANAGER_AUTH)
 CONTRACTOR = "0x" + "b" * 40
 
 
@@ -37,16 +40,11 @@ CONTRACTOR = "0x" + "b" * 40
 @pytest.fixture(autouse=True)
 def rules():
     config = RulesConfig(
-        category_limits={"contractor_milestone": 500.0, "operational_expense": 500.0, "other": 200.0},
-        thresholds=Thresholds(
-            trust_min_auto_approve=0.75,
-            trust_min_confidence_for_auto_approve=0.7,
-            trust_min_to_consider=0.4,
-            importance_high=0.7,
-            urgency_high=0.7,
-            reduced_amount_fraction=0.5,
-        ),
+        category_limits=category_limits(contractor_milestone=500.0, operational_expense=500.0),
+        thresholds=thresholds(),
         criteria=ScoringCriteria(trust=["a", "b"], urgency=["a", "b"], importance=["a", "b"]),
+        # Payment-mechanics tests: an unseen payee would be escalated before the code under test runs.
+        require_known_payee=False,
     )
     with (
         patch("src.policy.rules.load_config", return_value=config),
@@ -189,18 +187,57 @@ def test_when_we_control_the_contractor_wallet_the_escrow_is_funded_right_away(l
 
 @PROVIDER_IS_OURS
 def test_a_reduced_approval_escrows_the_reduced_amount(log):
+    """When the category DOES allow a part payment, the escrow gets the fraction.
+
+    A contractor milestone does not, by default -- see the next test. This one
+    overrides the category so it is about the escrow amount, not the rule.
+    """
     escrow = FakeEscrow()
+    permissive = RulesConfig(
+        category_limits=category_limits(contractor_milestone=500.0, operational_expense=500.0),
+        thresholds=thresholds(),
+        criteria=ScoringCriteria(trust=["a", "b"], urgency=["a", "b"], importance=["a", "b"]),
+        require_known_payee=False,
+    )
+    permissive.category_limits["contractor_milestone"] = permissive.category_limits[
+        "contractor_milestone"
+    ].model_copy(update={"allow_reduced": True})
 
     # Medium trust + high urgency => approve_reduced, capped at
     # limit x fraction = 500 x 0.5 = 250 (see policy/rules.py).
+    with (
+        patch("src.policy.rules.load_config", return_value=permissive),
+        patch("src.policy.limits.load_config", return_value=permissive),
+    ):
+        entry = run_pipeline(
+            milestone(amount=400.0), engine=engine_with(trust=0.5, urgency=0.9, importance=0.9),
+            escrow=escrow, verbose=False,
+        )
+
+    assert entry.decision == "approve_reduced" and entry.reduced_amount == 250.0
+    assert ("set_budget", 42, 250.0, CONTRACTOR) in escrow.calls
+    assert ("fund", 42, 250.0) in escrow.calls  # never the 400 that was requested
+
+
+def test_a_milestone_is_never_paid_in_part(log):
+    """Half an agreed contract price is not half a delivery.
+
+    The reduced-approval branch pays a fraction of the ceiling, which is fine
+    for a supply purchase and meaningless for a milestone: it would pay for work
+    that was never accepted. With the shipped default (`allow_reduced: false`)
+    the policy must escalate instead, and no escrow may be opened.
+    """
+    escrow = FakeEscrow()
+
     entry = run_pipeline(
         milestone(amount=400.0), engine=engine_with(trust=0.5, urgency=0.9, importance=0.9),
         escrow=escrow, verbose=False,
     )
 
-    assert entry.decision == "approve_reduced" and entry.reduced_amount == 250.0
-    assert ("set_budget", 42, 250.0, CONTRACTOR) in escrow.calls
-    assert ("fund", 42, 250.0) in escrow.calls  # never the 400 that was requested
+    assert entry.decision == "escalate"
+    assert entry.reduced_amount is None
+    assert escrow.calls == []  # nothing was opened, nothing was funded
+    assert "partial payment is not a valid outcome" in entry.reason
 
 
 @WITH_CIRCLE
@@ -358,17 +395,6 @@ def test_unknown_request_and_non_escrow_request_are_refused(log):
         advance_milestone("m-1", "release", escrow=FakeEscrow())
 
 
-def test_a_failed_on_chain_step_raises_and_logs_nothing(log):
-    log.append(entry_in_state("submitted"))
-    escrow = FakeEscrow()
-    escrow.complete = MagicMock(side_effect=EscrowError("Cannot complete job 42: it is Funded"))
-
-    with pytest.raises(EscrowError):
-        advance_milestone("m-1", "release", escrow=escrow)
-
-    assert len(log) == 1  # the escrow is exactly where it was; the operator can retry
-
-
 def test_double_release_is_refused_the_second_time(log):
     log.append(entry_in_state("submitted"))
     escrow = FakeEscrow()
@@ -379,7 +405,198 @@ def test_double_release_is_refused_the_second_time(log):
 
 
 # --------------------------------------------------------------------------
+# Failed attempts are recorded
+# --------------------------------------------------------------------------
+
+
+def failing_release(error: Exception) -> FakeEscrow:
+    escrow = FakeEscrow()
+    escrow.complete = MagicMock(side_effect=error)
+    return escrow
+
+
+def test_a_failed_release_is_logged_and_still_raised(log):
+    log.append(entry_in_state("submitted"))
+    error = EscrowError("Failed to complete job: transaction t9 ended as FAILED.", transaction_id="t9", tx_hash="0xbad")
+
+    with pytest.raises(EscrowError) as raised:
+        advance_milestone("m-1", "release", reviewer="ana", escrow=failing_release(error))
+
+    assert raised.value is error  # the caller still sees the original error
+    assert len(log) == 2
+    failed = log[-1]
+    assert failed.failed_attempt.action == "release"
+    assert failed.failed_attempt.error == str(error)
+    assert (failed.failed_attempt.transaction_id, failed.failed_attempt.tx_hash) == ("t9", "0xbad")
+    assert failed.reviewer == "ana" and "failed; escrow unchanged" in failed.reason
+
+
+def test_a_failed_attempt_leaves_the_escrow_state_untouched(log):
+    """The funds did not move, so the log must not say they did, nor that they vanished."""
+    before = entry_in_state("submitted")
+    log.append(before)
+
+    with pytest.raises(EscrowError):
+        advance_milestone("m-1", "release", escrow=failing_release(EscrowError("reverted")))
+
+    after = log[-1]
+    assert after.escrow_status == before.escrow_status == "submitted"
+    assert after.payment_status == before.payment_status
+    assert after.payment_executed is False  # not paid
+    assert (after.tx_hash, after.transaction_id) == (before.tx_hash, before.transaction_id)  # last SUCCESSFUL tx
+    assert after.escrow_job_id == 42
+
+
+def test_a_failure_with_no_transaction_records_none(log):
+    log.append(entry_in_state("open"))
+    escrow = FakeEscrow()
+    escrow.fund = MagicMock(side_effect=EscrowError("Circle rejected the request"))
+
+    with pytest.raises(EscrowError):
+        advance_milestone("m-1", "fund", escrow=escrow)
+
+    assert log[-1].failed_attempt.tx_hash is None and log[-1].failed_attempt.transaction_id is None
+
+
+def test_a_contractor_inflating_the_budget_leaves_an_audit_trail(log):
+    log.append(entry_in_state("open"))
+    escrow = FakeEscrow()
+    escrow.fund = MagicMock(side_effect=EscrowBudgetMismatchError("Job 42 budget is 500.0 USDC but policy approved 100.0 USDC; refusing to fund."))
+
+    with pytest.raises(EscrowBudgetMismatchError):
+        advance_milestone("m-1", "fund", escrow=escrow)
+
+    assert "refusing to fund" in log[-1].failed_attempt.error
+    assert log[-1].escrow_status == "open"  # nothing was funded
+
+
+def test_an_unexpected_exception_is_logged_with_its_type_and_reraised(log):
+    log.append(entry_in_state("submitted"))
+    boom = ConnectionError("rpc down")
+
+    with pytest.raises(ConnectionError):
+        advance_milestone("m-1", "release", escrow=failing_release(boom))
+
+    assert log[-1].failed_attempt.error == "ConnectionError: rpc down"
+
+
+def test_a_failure_to_even_build_the_escrow_client_is_logged(log):
+    log.append(entry_in_state("submitted"))
+    with patch("src.pipeline.EscrowClient", side_effect=RuntimeError("bad credentials")):
+        with pytest.raises(RuntimeError):
+            advance_milestone("m-1", "release")
+    assert "bad credentials" in log[-1].failed_attempt.error
+
+
+def test_an_identical_repeated_failure_is_not_logged_again(log):
+    """The API has no auth: repeating a bad request must not grow the log forever."""
+    log.append(entry_in_state("submitted"))
+    for _ in range(5):
+        with pytest.raises(EscrowError):
+            advance_milestone("m-1", "release", escrow=failing_release(EscrowError("reverted")))
+    assert len(log) == 2  # the original entry + ONE failure
+
+
+def test_a_different_failure_or_action_is_logged(log):
+    log.append(entry_in_state("submitted"))
+    with pytest.raises(EscrowError):
+        advance_milestone("m-1", "release", escrow=failing_release(EscrowError("reverted")))
+    with pytest.raises(EscrowError):
+        advance_milestone("m-1", "release", escrow=failing_release(EscrowError("timeout")))  # new error
+    escrow = FakeEscrow()
+    escrow.reject = MagicMock(side_effect=EscrowError("timeout"))
+    with pytest.raises(EscrowError):
+        advance_milestone("m-1", "reject", escrow=escrow)  # new action, same text
+    assert len(log) == 4
+
+
+def test_a_later_success_clears_the_failure_and_proceeds(log):
+    log.append(entry_in_state("submitted"))
+    with pytest.raises(EscrowError):
+        advance_milestone("m-1", "release", escrow=failing_release(EscrowError("reverted")))
+    assert log[-1].failed_attempt is not None
+
+    entry = advance_milestone("m-1", "release", escrow=FakeEscrow())
+
+    assert entry.failed_attempt is None
+    assert (entry.escrow_status, entry.payment_executed) == ("released", True)
+
+
+def test_state_refusals_are_not_logged_as_attempts(log):
+    """Wrong state / unknown request / not-our-contractor never reached the escrow."""
+    log.append(entry_in_state("released"))
+    with pytest.raises(MilestoneError):
+        advance_milestone("m-1", "release", escrow=FakeEscrow())
+    with pytest.raises(MilestoneNotFoundError):
+        advance_milestone("ghost", "release", escrow=FakeEscrow())
+
+    log.append(entry_in_state("funded", "m-2"))
+    with WITH_CIRCLE, pytest.raises(MilestoneError, match="must submit themselves"):
+        advance_milestone("m-2", "deliver", escrow=FakeEscrow())
+
+    assert len(log) == 2  # only the two entries we put there
+
+
+def test_a_log_write_failure_never_hides_the_real_error(log):
+    log.append(entry_in_state("submitted"))
+    original = EscrowError("reverted")
+
+    with patch("src.pipeline.append_entry", side_effect=OSError("disk full")):
+        with pytest.raises(EscrowError) as raised:
+            advance_milestone("m-1", "release", escrow=failing_release(original))
+
+    assert raised.value is original  # not the OSError
+
+
+def test_failed_attempts_keep_the_hash_chain_valid_and_round_trip(tmp_path):
+    from src.audit.store import append_entry as real_append, read_all_entries
+    from src.audit.verify import verify_chain
+
+    path = str(tmp_path / "audit.jsonl")
+    ok = entry_in_state("submitted")
+    failed = ok.model_copy(update={"failed_attempt": FailedAttempt(action="release", error="reverted", tx_hash="0xbad")})
+    for e in (ok, failed, ok.model_copy(update={"escrow_status": "released"})):
+        real_append(e, path)
+
+    assert verify_chain(path).ok
+    assert read_all_entries(path)[1].failed_attempt.tx_hash == "0xbad"
+
+
+# --------------------------------------------------------------------------
 # API
+# --------------------------------------------------------------------------
+
+
+def test_active_milestones_expose_the_last_failed_attempt(log):
+    failed = entry_in_state("funded").model_copy(
+        update={"failed_attempt": FailedAttempt(action="release", error="reverted", tx_hash="0xbad")}
+    )
+    log.append(failed)
+    reader = MagicMock()
+    reader.get_job.return_value = MagicMock(status="Funded", budget_usdc=100.0)
+
+    with patch("src.api._chain_reader", return_value=reader):
+        data = client.get("/api/milestones/active").json()
+
+    assert data[0]["failed_attempt"] == {
+        "action": "release", "error": "reverted", "transaction_id": None, "tx_hash": "0xbad",
+    }
+
+
+def test_stats_count_milestones_needing_attention(log):
+    attempt = FailedAttempt(action="release", error="reverted")
+    log.extend(
+        [
+            entry_in_state("funded", "a").model_copy(update={"failed_attempt": attempt}),
+            entry_in_state("funded", "b"),
+            entry_in_state("released", "c").model_copy(update={"failed_attempt": attempt}),  # resolved since
+        ]
+    )
+    assert client.get("/api/stats").json()["milestones_needing_attention"] == 1
+
+
+# --------------------------------------------------------------------------
+# API (actions)
 # --------------------------------------------------------------------------
 
 

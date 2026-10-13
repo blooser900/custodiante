@@ -28,6 +28,18 @@ def generate_markdown_report(path: str | None = None) -> str:
         # payment_status is None on entries written before the field existed.
         if entry.payment_status in ("failed", "skipped"):
             lines.append(f"- Payment {entry.payment_status}: {entry.payment_detail}")
+        for question_id, answer in entry.scores.extra.items():
+            if answer.type == "noul":
+                shown = f"{answer.noul:.0%} yes"
+            elif answer.type == "choice":
+                shown = f"{answer.choice} (confidence {answer.confidence:.0%})"
+            else:
+                shown = f"{answer.score:.2f} (confidence {answer.confidence:.0%})"
+            lines.append(f"- {question_id.replace('_', ' ')}: {shown}")
+        if getattr(entry, "failed_attempt", None):
+            attempt = entry.failed_attempt
+            tx = f" (tx {attempt.tx_hash})" if attempt.tx_hash else ""
+            lines.append(f"- Failed escrow action `{attempt.action}`{tx}: {attempt.error}")
         if entry.engine_name:
             lines.append(f"- Decision engine: {entry.engine_name}")
         if entry.payment_executed:

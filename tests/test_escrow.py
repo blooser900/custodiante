@@ -318,3 +318,23 @@ def test_chain_reader_fails_clearly_when_the_receipt_has_no_job_created_event():
     reader._web3 = MagicMock()
     with pytest.raises(EscrowError, match="No JobCreated event"):
         reader.job_id_from_tx("0xabc")
+
+
+# --------------------------------------------------------------------------
+# Errors identify the transaction that failed (for the audit log)
+# --------------------------------------------------------------------------
+
+
+def test_a_transaction_that_fails_on_chain_carries_its_ids():
+    client, _, _ = make_client(job=make_job(status="Submitted"), final_state="FAILED")
+    with pytest.raises(EscrowError) as raised:
+        client.complete(7, "x")
+    assert raised.value.transaction_id == "tx-1"
+    assert raised.value.tx_hash == "0xhash-tx-1"
+
+
+def test_a_refusal_before_sending_carries_no_transaction():
+    client, _, _ = make_client(job=make_job(status="Funded"))
+    with pytest.raises(EscrowError) as raised:
+        client.complete(7, "x")  # not submitted yet
+    assert raised.value.transaction_id is None and raised.value.tx_hash is None

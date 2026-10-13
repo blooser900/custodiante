@@ -3,16 +3,37 @@ name = "tameion-payment-agent"
 version = "0.1.0"
 description = "Autonomous payment approval agent with calibrated confidence scoring, built on Circle/Arc."
 requires-python = ">=3.11"
+# Pinned exactly. This is a system that moves money, and the decision path
+# depends on model scores and SDK behaviour: an unpinned dependency means two
+# installs of the same commit can decide differently, which defeats the point
+# of a hash-chained audit log.
+#
+# `uv.lock` is the real lock (it also pins every transitive dependency and
+# records hashes). These bounds exist so the intent is visible in the file a
+# human reads, and so a plain `pip install .` gets the same versions.
 dependencies = [
-    "pydantic>=2.0",
-    "python-dotenv",
-    "httpx",
-    "circle-developer-controlled-wallets",
-    "fastapi",
-    "uvicorn[standard]",
-    "pyyaml",
-    "web3",
+    "pydantic==2.13.5",
+    "python-dotenv==1.2.4",
+    "httpx==0.28.1",
+    # Circle's SDK: pinned exactly, and note that from 9.2.0 Circle publishes
+    # this package as an sdist with NO wheel, so installing it runs a setuptools
+    # build in the user's environment. If a future bump breaks the install, check
+    # whether a wheel exists for that version before assuming the code is wrong.
+    "circle-developer-controlled-wallets==9.6.0",
+    "fastapi==0.142.4",
+    "uvicorn[standard]==0.54.0",
+    "pyyaml==6.0.3",
+    "web3==8.0.0",
 ]
 
 [project.optional-dependencies]
-dev = ["pytest"]
+dev = ["pytest==9.1.1"]
+
+[tool.pytest.ini_options]
+# `tests` uses `from tests.conftest import ...`, so the repo root must be on
+# sys.path: without this, running pytest from anywhere else breaks collection.
+testpaths = ["tests"]
+pythonpath = ["."]
+# A warning is not a failure, but an unraisable exception in a thread is how a
+# double-spend guard can die silently, so surface them loudly.
+filterwarnings = ["error::pytest.PytestUnhandledThreadExceptionWarning"]

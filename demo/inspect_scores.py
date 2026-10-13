@@ -16,7 +16,7 @@ import sys
 import httpx
 
 from src.config import load_config
-from src.decision_engine.criteria import SCORE_NAMES, build_questions, build_state
+from src.decision_engine.criteria import build_questions, build_state
 from src.decision_engine.fallback_classifier import (
     FALLBACK_API_KEY,
     FALLBACK_API_URL,
@@ -27,11 +27,11 @@ from src.requests.schema import PaymentRequest
 
 def build_payload(request: PaymentRequest) -> dict:
     """Build the exact System-One payload the Kev engine would send."""
-    criteria = load_config().criteria
+    config = load_config()
     return {
         "model": FALLBACK_MODEL,
         "state": build_state(request),
-        "questions": build_questions(criteria),
+        "questions": build_questions(config.criteria, config.assessment_questions),
     }
 
 
@@ -49,14 +49,13 @@ def inspect(request_path: str) -> None:
     answers = response.json()["answers"]
 
     print(f"=== Raw answers for {request_path} ===\n")
-    for question_id in SCORE_NAMES:
-        answer = answers[question_id]
-        print(f"--- {question_id} ---")
-        print(f"criteria: {getattr(criteria, question_id)}")
-        print(f"raw score: {answer['score']}")
-        print(f"confidence: {answer['confidence']}")
-        print(f"legend: {answer.get('legend')}")
-        print(f"probabilities: {answer.get('probabilities')}")
+    for question_id, answer in answers.items():
+        print(f"--- {question_id} ({answer.get('type', '?')}) ---")
+        # Print whatever each type carries: a noul has only its probability of
+        # yes; choice and score also have confidence and probabilities.
+        for key in ("score", "choice", "noul", "confidence", "legend", "probabilities"):
+            if key in answer:
+                print(f"{key}: {answer[key]}")
         print()
 
 

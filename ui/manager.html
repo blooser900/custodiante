@@ -1,0 +1,722 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Tameion · Livro de pagamentos</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    --paper: #EEF2EA;
+    --paper-line: #C9D3C3;
+    --ink: #1E2A22;
+    --ink-soft: #4B5A4F;
+    --gold: #9C6B1F;
+    --gold-bg: #F1E6D2;
+    --rust: #8B3A2B;
+    --rust-bg: #F3E2DD;
+    --slate: #52514C;
+    --slate-bg: #E7E5E0;
+    --focus: #2C5AA0;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: 'IBM Plex Sans', system-ui, sans-serif;
+    line-height: 1.5;
+  }
+
+  a { color: var(--gold); }
+
+  :focus-visible {
+    outline: 2px solid var(--focus);
+    outline-offset: 2px;
+  }
+
+  .page {
+    max-width: 920px;
+    margin: 0 auto;
+    padding: 2rem 1.25rem 4rem;
+  }
+
+  header.top {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 0.75rem 1.5rem;
+    border-bottom: 1px solid var(--paper-line);
+    padding-bottom: 1.25rem;
+    margin-bottom: 2rem;
+  }
+
+  h1 {
+    font-family: 'Source Serif 4', serif;
+    font-weight: 600;
+    font-size: 1.75rem;
+    margin: 0;
+  }
+
+  .stat-line {
+    font-size: 0.9rem;
+    color: var(--ink-soft);
+  }
+  .stat-line strong { color: var(--ink); font-weight: 600; }
+
+  section { margin-bottom: 2.75rem; }
+
+  h2 {
+    font-family: 'Source Serif 4', serif;
+    font-size: 1.15rem;
+    font-weight: 600;
+    margin: 0 0 0.9rem;
+  }
+
+  .section-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 1rem;
+    flex-wrap: wrap;
+  }
+
+  .reviewer-field {
+    font-size: 0.85rem;
+    color: var(--ink-soft);
+  }
+  .reviewer-field input {
+    font-family: inherit;
+    font-size: 0.9rem;
+    border: none;
+    border-bottom: 1px solid var(--paper-line);
+    background: transparent;
+    color: var(--ink);
+    padding: 0.15rem 0.2rem;
+    width: 9rem;
+  }
+  .reviewer-field input:focus { border-color: var(--ink); }
+
+  .empty {
+    color: var(--ink-soft);
+    font-size: 0.92rem;
+    padding: 0.75rem 0;
+    border-top: 1px solid var(--paper-line);
+  }
+
+  .pending-row {
+    border-top: 1px solid var(--paper-line);
+    padding: 1rem 0;
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 0.5rem 1.5rem;
+    align-items: start;
+    transition: background-color 0.4s ease;
+  }
+  .pending-row.flash { background-color: var(--gold-bg); }
+
+  .pending-main { min-width: 0; }
+  .pending-title {
+    font-weight: 600;
+    margin: 0 0 0.2rem;
+  }
+  .pending-meta {
+    font-size: 0.85rem;
+    color: var(--ink-soft);
+    margin: 0 0 0.4rem;
+  }
+  .pending-reason {
+    font-size: 0.88rem;
+    color: var(--rust);
+    margin: 0 0 0.4rem;
+  }
+  .score-row {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.78rem;
+    color: var(--ink-soft);
+  }
+
+  .amount {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 1.05rem;
+    font-weight: 500;
+    white-space: nowrap;
+  }
+
+  .actions {
+    display: flex;
+    gap: 0.5rem;
+    align-self: center;
+  }
+
+  button {
+    font-family: 'IBM Plex Sans', sans-serif;
+    font-size: 0.88rem;
+    font-weight: 500;
+    padding: 0.45rem 0.9rem;
+    border-radius: 3px;
+    border: 1px solid transparent;
+    cursor: pointer;
+  }
+  button.approve { background: var(--gold); color: #fff; }
+  button.approve:hover { background: #875D1A; }
+  button.deny { background: transparent; color: var(--rust); border-color: var(--rust); }
+  button.deny:hover { background: var(--rust-bg); }
+  button.primary { background: var(--ink); color: var(--paper); }
+  button.primary:hover { background: #324539; }
+  button:disabled { opacity: 0.5; cursor: default; }
+
+  details.row-detail summary { cursor: pointer; font-family: 'IBM Plex Mono', monospace; font-size: 0.8rem; }
+  .detail-body { margin-top: 0.4rem; max-width: 34rem; }
+  .detail-body p { margin: 0.2rem 0; font-size: 0.82rem; color: var(--ink-soft); white-space: normal; }
+  .detail-reason { color: var(--rust) !important; }
+  .ledger-wrap { overflow-x: auto; border-top: 1px solid var(--paper-line); }
+  table.ledger { width: 100%; border-collapse: collapse; font-size: 0.86rem; }
+  table.ledger th {
+    text-align: left;
+    font-weight: 500;
+    color: var(--ink-soft);
+    padding: 0.5rem 0.6rem;
+    border-bottom: 1px solid var(--paper-line);
+    white-space: nowrap;
+  }
+  table.ledger td {
+    padding: 0.55rem 0.6rem;
+    border-bottom: 1px solid var(--paper-line);
+    vertical-align: top;
+  }
+  table.ledger td.num { font-family: 'IBM Plex Mono', monospace; white-space: nowrap; }
+  .rec-actions { display: flex; flex-wrap: wrap; gap: 0.3rem; margin-top: 0.3rem; }
+  .rec-btn {
+    font: inherit; font-size: 0.74rem; padding: 0.12rem 0.5rem; cursor: pointer;
+    color: inherit; background: transparent; border: 1px solid var(--paper-line); border-radius: 3px;
+  }
+  .rec-btn:hover:not(:disabled) { background-color: var(--gold-bg); }
+  .rec-btn:disabled { opacity: 0.5; cursor: default; }
+  table.ledger tr.flash td { background-color: var(--gold-bg); transition: background-color 0.4s ease; }
+
+  .badge {
+    display: inline-block;
+    font-size: 0.76rem;
+    font-weight: 500;
+    padding: 0.15rem 0.5rem;
+    border-radius: 3px;
+    white-space: nowrap;
+  }
+  .badge.approve { background: var(--gold-bg); color: var(--gold); }
+  .badge.approve_reduced { background: var(--gold-bg); color: var(--gold); }
+  .badge.escalate { background: var(--rust-bg); color: var(--rust); }
+  .badge.escalate.denied { background: var(--slate-bg); color: var(--slate); }
+
+  .attempt-failed { font-size: 0.85rem; color: var(--rust); margin: 0.35rem 0 0; }
+  .chain-status { font-family: 'IBM Plex Mono', monospace; font-size: 0.78rem; color: var(--ink-soft); }
+  .actions button.release { background: var(--gold); color: #fff; border-color: var(--gold); }
+  .actions button:disabled { opacity: 0.45; cursor: not-allowed; }
+  .integrity { font-size: 0.8rem; margin-top: 0.35rem; }
+  .integrity.ok { color: var(--slate); }
+  .integrity.bad { color: var(--rust); font-weight: 600; }
+  .pay-failed { color: var(--rust); font-weight: 600; cursor: help; }
+  .pay-skipped { color: var(--slate); cursor: help; }
+  .tx-link { font-family: 'IBM Plex Mono', monospace; font-size: 0.8rem; }
+
+  @media (prefers-reduced-motion: reduce) {
+    .pending-row, table.ledger tr { transition: none; }
+  }
+
+  @media (max-width: 640px) {
+      .pending-row { grid-template-columns: 1fr; }
+    .actions { justify-content: flex-start; }
+  }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <header class="top">
+    <h1>Livro de pagamentos</h1>
+    <div style="display:flex; align-items:baseline; gap:1.25rem;">
+      <div class="stat-line" id="statLine">Carregando…</div>
+      <div class="integrity" id="integrity"></div>
+      <a href="/manager/settings" style="font-size:0.85rem; color:var(--ink-soft); text-decoration:none;">Regras &rarr;</a>
+      <a href="/" style="font-size:0.85rem; color:var(--ink-soft); text-decoration:none;">Portal do solicitante &rarr;</a>
+      <a href="#" id="logout" style="font-size:0.85rem; color:var(--ink-soft); text-decoration:none;">Sair</a>
+    </div>
+  </header>
+
+  <section>
+    <div class="section-head">
+      <h2>Precisa da sua decisão</h2>
+      <div class="reviewer-field">
+        Revisado por
+        <input id="reviewerName" type="text" placeholder="seu nome" value="operador" />
+      </div>
+    </div>
+    <div id="pendingList"></div>
+  </section>
+
+  <section>
+    <h2>Milestones em escrow</h2>
+    <p class="pending-meta">O valor fica travado no contrato até você confirmar a entrega.</p>
+    <div id="milestoneList"></div>
+  </section>
+
+  <section>
+    <h2>Histórico</h2>
+    <div class="ledger-wrap">
+      <table class="ledger">
+        <thead>
+          <tr>
+            <th>Quando</th>
+            <th>Solicitação</th>
+            <th>Categoria</th>
+            <th>Valor</th>
+            <th>Decisão</th>
+            <th>Pago</th>
+            <th>Transação</th>
+          </tr>
+        </thead>
+        <tbody id="ledgerBody"></tbody>
+      </table>
+    </div>
+  </section>
+
+</div>
+
+<script src="/ui/manager-auth.js"></script>
+<script>
+const API = '';
+const CATEGORY_LABEL = {
+  contractor_milestone: 'Contractor milestone',
+  supply_purchase: 'Compra de insumo',
+  operational_expense: 'Despesa operacional',
+  other: 'Outro',
+};
+const EXPLORER_TX_URL = 'https://explorer.testnet.arc.io/tx/';
+
+function fmtAmount(v) {
+  return new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(v) + ' USDC';
+}
+function fmtWhen(iso) {
+  const d = new Date(iso);
+  return d.toLocaleString('pt-BR', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
+}
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+async function fetchJSON(url, options) {
+  const res = await ManagerAuth.fetch(API + url, options);
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.detail || `Request failed (${res.status})`);
+  }
+  return res.json();
+}
+
+function renderIntegrity(report) {
+  const el = document.getElementById('integrity');
+  if (!el) return;
+  if (report.ok) {
+    el.className = 'integrity ok';
+    el.textContent = report.chained ? `Log íntegro · ${report.chained} entradas verificadas` : 'Log vazio';
+  } else {
+    el.className = 'integrity bad';
+    el.textContent = `Log ADULTERADO · ${report.message}`;
+  }
+}
+
+function renderStats(stats) {
+  document.getElementById('statLine').innerHTML =
+    `<strong>${stats.pending_count}</strong> pendente${stats.pending_count === 1 ? '' : 's'} · ` +
+    `<strong>${fmtAmount(stats.paid_total_usdc)}</strong> pago · ` +
+    (stats.escrowed_total_usdc ? `<strong>${fmtAmount(stats.escrowed_total_usdc)}</strong> em escrow · ` : '') +
+    `${stats.total_requests} solicitaç${stats.total_requests === 1 ? 'ão' : 'ões'} no total` +
+    (stats.milestones_needing_attention ? ` · <strong class="pay-failed">${stats.milestones_needing_attention} milestone${stats.milestones_needing_attention === 1 ? '' : 's'} com ação falha</strong>` : '') +
+    (stats.payments_failed ? ` · <strong class="pay-failed">${stats.payments_failed} pagamento${stats.payments_failed === 1 ? '' : 's'} com falha</strong>` : '') +
+    (stats.payments_in_flight ? ` · <strong class="pay-failed">${stats.payments_in_flight} pagamento${stats.payments_in_flight === 1 ? '' : 's'} sem confirmação</strong>` : '');
+}
+
+// A score is the engine's rating (0..1); its confidence is how sure the
+// engine is of that rating. Both are shown, and only here: this page is the
+// one audience that may see how the engine reasons.
+function scoreLine(scores) {
+  const part = (label, sc) => `${label} ${sc.value.toFixed(2)} (certeza ${Math.round(sc.confidence * 100)}%)`;
+  return `${part('Confiabilidade', scores.trust)} · ${part('Urgência', scores.urgency)} · ${part('Importância', scores.importance)}`;
+}
+
+const QUESTION_LABEL = {
+  natureza_transacao: 'Natureza',
+  fraud_indicators: 'Indícios de fraude',
+  description_matches_category: 'Descrição compatível com a categoria',
+};
+const pct = v => Math.round(v * 100) + '%';
+
+// One line per extra answer. A noul is the probability of "yes" (it has no
+// certainty of its own); choice and score carry a certainty that reflects how
+// concentrated the model's probabilities are, so read it next to them.
+function extraLines(scores) {
+  return Object.entries(scores.extra || {}).map(([id, a]) => {
+    const label = escapeHtml(QUESTION_LABEL[id] || id.replace(/_/g, ' '));
+    if (a.type === 'noul') return `${label}: ${pct(a.noul)} sim`;
+    if (a.type === 'choice') {
+      const top = a.probabilities[a.choice];
+      return `${label}: ${escapeHtml(a.choice)} (${top == null ? '?' : pct(top)}, certeza ${pct(a.confidence)})`;
+    }
+    const top = Object.keys(a.probabilities).length - 1;
+    return `${label}: ${a.score.toFixed(2)} de ${top} (certeza ${pct(a.confidence)})`;
+  });
+}
+
+function partyText(name, p) {
+  if (p === null || p === undefined) return `${name}: sem carteira informada`;
+  if (!p.known) return `${name}: sem histórico`;
+  const weak = p.identity_basis === 'self_declared' ? ' (autodeclarado, evidência fraca)' : '';
+  return `${name}: ${p.succeeded}/${p.attempts} concluídos · índice ${p.reliability_index.toFixed(2)}${weak}`;
+}
+
+// What the model was shown about the past, and anything it failed to answer.
+function evidenceHtml(scores) {
+  const ev = scores.evidence;
+  const history = ev && ev.state && ev.state.history;
+  const lines = [];
+  if (history) lines.push(`Histórico — ${partyText('solicitante', history.requester)} · ${partyText('destino', history.destination)}`);
+  if (ev && ev.problems && ev.problems.length) lines.push(`Respostas ausentes ou inválidas: ${ev.problems.map(escapeHtml).join('; ')}`);
+  return lines.map(l => `<p class="score-row">${l}</p>`).join('');
+}
+
+function assessmentHtml(scores) {
+  const lines = extraLines(scores);
+  return (lines.length ? `<p class="score-row">${lines.join(' · ')}</p>` : '') + evidenceHtml(scores);
+}
+
+function renderPending(items) {
+  const el = document.getElementById('pendingList');
+  if (items.length === 0) {
+    el.innerHTML = '<p class="empty">Nenhuma solicitação pendente — tudo em dia.</p>';
+    return;
+  }
+  el.innerHTML = items.map(e => {
+    const r = e.request;
+    const s = e.scores;
+    return `
+      <div class="pending-row" data-id="${escapeHtml(r.request_id)}">
+        <div class="pending-main">
+          <p class="pending-title">${escapeHtml(r.requester)} · ${CATEGORY_LABEL[r.category] || r.category}</p>
+          <p class="pending-meta">${escapeHtml(r.description)}</p>
+          <p class="pending-reason">${escapeHtml(e.reason)}</p>
+          <p class="score-row">${scoreLine(s)}</p>
+          ${assessmentHtml(s)}
+        </div>
+        <div>
+          <p class="amount" style="text-align:right">${fmtAmount(r.amount_usdc)}</p>
+          <div class="actions">
+            <button class="deny" data-action="deny" data-id="${escapeHtml(r.request_id)}">Negar</button>
+            <button class="approve" data-action="approve" data-id="${escapeHtml(r.request_id)}">Aprovar</button>
+          </div>
+        </div>
+      </div>`;
+  }).join('');
+}
+
+function decisionBadge(e) {
+  if (e.decision === 'escalate' && e.human_review === 'denied') {
+    return `<span class="badge escalate denied">Negado${e.reviewer ? ' · ' + escapeHtml(e.reviewer) : ''}</span>`;
+  }
+  if (e.decision === 'escalate') {
+    return `<span class="badge escalate">Escalado</span>`;
+  }
+  if (e.decision === 'approve_reduced') {
+    return `<span class="badge approve_reduced">Aprovado (reduzido)</span>`;
+  }
+  if (e.decision === 'approve') {
+    const human = e.human_review === 'approved' ? ` · ${escapeHtml(e.reviewer || 'humano')}` : '';
+    return `<span class="badge approve">Aprovado${human}</span>`;
+  }
+  return `<span class="badge">${escapeHtml(e.decision)}</span>`;
+}
+
+function paymentCell(e) {
+  // A recorded-but-unconfirmed attempt: the process died between sending the
+  // transfer and writing its outcome. Must read as "unknown", never as "no",
+  // or a reviewer would think nothing was spent.
+  if (e.payment_attempt) {
+    return `<span class="pay-failed" title="${escapeHtml(e.payment_attempt)} — reconcile com a Circle/Arc antes de repetir">Sem confirmação</span>`;
+  }
+  // payment_status is null on entries written before the field existed.
+  const status = e.payment_status || (e.payment_executed ? 'executed' : 'not_applicable');
+  const detail = escapeHtml(e.payment_detail || '');
+  if (status === 'executed') return 'Sim';
+  if (status === 'escrow_open') return '<span class="pay-skipped" title="Job criado; aguardando o contratado definir o orçamento.">Escrow aberto</span>';
+  if (status === 'escrowed') return '<span class="pay-skipped" title="Valor travado no contrato, ainda não liberado.">Em escrow</span>';
+  if (status === 'refunded') return 'Reembolsado';
+  if (status === 'failed') return `<span class="pay-failed" title="${detail}">Falhou</span>`;
+  if (status === 'skipped') return `<span class="pay-skipped" title="${detail}">Não enviado</span>`;
+  return 'Não';
+}
+
+// How to get an approved payment out of a stuck state. Reconciling only ASKS
+// Circle (it never sends money); the other two do send, so they confirm first.
+//   in flight (sent, outcome unknown) -> Reconciliar; Reenviar only if Circle has no record
+//   failed / not sent                 -> Tentar de novo
+let ledgerEntries = []; // what renderLedger last drew, for the confirm texts
+
+const RECOVERY_CONFIRM = {
+  resend: 'Reenviar só faz sentido se o "Reconciliar" disse que a Circle NÃO tem registro desta transferência.\n\n' +
+          'O reenvio usa a MESMA chave de idempotência: se a transferência existir, a Circle responde com ela em vez de criar outra.\n\nReenviar?',
+  retry: null, // built per row: it names the amount and the wallet
+};
+
+function recoveryButtons(e) {
+  const r = e.request;
+  if (e.escrow_job_id || e.escrow_status) return ''; // escrow has its own milestone actions
+  const id = escapeHtml(r.request_id);
+  if (e.payment_attempt) {
+    return `<div class="rec-actions">
+      <button class="rec-btn" data-rec="reconcile" data-id="${id}" title="Pergunta à Circle como a transferência terminou. Não envia dinheiro.">Reconciliar</button>
+      <button class="rec-btn" data-rec="resend" data-id="${id}" title="Só se a Circle não tiver registro. Reusa a mesma chave de idempotência.">Reenviar…</button>
+    </div>`;
+  }
+  const approved = e.decision === 'approve' || e.decision === 'approve_reduced';
+  const retryable = e.payment_status === 'failed' || e.payment_status === 'skipped';
+  if (approved && retryable && r.counterparty_wallet) {
+    return `<div class="rec-actions">
+      <button class="rec-btn" data-rec="retry" data-id="${id}" title="Tenta pagar de novo com uma nova chave de idempotência.">Tentar de novo</button>
+    </div>`;
+  }
+  return '';
+}
+
+function renderLedger(entries) {
+  ledgerEntries = entries;
+  const body = document.getElementById('ledgerBody');
+  if (entries.length === 0) {
+    body.innerHTML = '<tr><td colspan="7" class="empty">Nenhuma solicitação registrada ainda.</td></tr>';
+    return;
+  }
+  body.innerHTML = entries.map(e => {
+    const r = e.request;
+    const amount = e.reduced_amount ?? r.amount_usdc;
+    const tx = e.tx_hash
+      ? `<a class="tx-link" href="${EXPLORER_TX_URL}${encodeURIComponent(e.tx_hash)}" target="_blank" rel="noopener">${escapeHtml(e.tx_hash.slice(0, 10))}…</a>`
+      : '—';
+    return `
+      <tr data-id="${escapeHtml(r.request_id)}">
+        <td>${fmtWhen(e.timestamp)}</td>
+        <td>
+          <details class="row-detail">
+            <summary>${escapeHtml(r.request_id)}</summary>
+            <div class="detail-body">
+              <p>${escapeHtml(r.requester)} — ${escapeHtml(r.description)}</p>
+              <p class="detail-reason">${escapeHtml(e.reason)}</p>
+              <p class="score-row">${scoreLine(e.scores)}</p>
+              ${assessmentHtml(e.scores)}
+              <p class="score-row">motor: ${escapeHtml(e.engine_name || 'desconhecido')}${e.reviewer ? ' · revisor: ' + escapeHtml(e.reviewer) : ''}</p>
+            </div>
+          </details>
+        </td>
+        <td>${CATEGORY_LABEL[r.category] || r.category}</td>
+        <td class="num">${fmtAmount(amount)}</td>
+        <td>${decisionBadge(e)}</td>
+        <td>${paymentCell(e)}${recoveryButtons(e)}</td>
+        <td>${tx}</td>
+      </tr>`;
+  }).join('');
+}
+
+function milestoneButtons(m) {
+  const id = escapeHtml(m.request.request_id);
+  const chain = m.chain_status;  // null when the RPC read failed
+  const buttons = [];
+  if (m.escrow_status === 'open' || chain === 'Open') {
+    buttons.push(`<button data-ms="fund" data-id="${id}">Financiar</button>`);
+  }
+  if (m.demo_contractor && chain === 'Funded') {
+    buttons.push(`<button data-ms="deliver" data-id="${id}" title="Demo: assina como o contratado">Simular entrega (demo)</button>`);
+  }
+  const canRelease = chain === 'Submitted';
+  buttons.push(`<button class="release" data-ms="release" data-id="${id}" ${canRelease ? '' : 'disabled'} title="${canRelease ? '' : 'Só é possível liberar depois que o contratado entregar.'}">Liberar pagamento</button>`);
+  buttons.push(`<button class="deny" data-ms="reject" data-id="${id}">Rejeitar e reembolsar</button>`);
+  return buttons.join('');
+}
+
+function failedAttemptHtml(a) {
+  if (!a) return '';
+  const tx = a.tx_hash
+    ? ` <a class="tx-link" href="${EXPLORER_TX_URL}${encodeURIComponent(a.tx_hash)}" target="_blank" rel="noopener">${escapeHtml(a.tx_hash.slice(0, 10))}…</a>`
+    : '';
+  return `<p class="attempt-failed">Última tentativa falhou (${escapeHtml(a.action)}): ${escapeHtml(a.error)}${tx}</p>`;
+}
+
+function renderMilestones(items) {
+  const el = document.getElementById('milestoneList');
+  if (items.length === 0) {
+    el.innerHTML = '<p class="empty">Nenhum milestone em escrow.</p>';
+    return;
+  }
+  el.innerHTML = items.map(m => {
+    const r = m.request;
+    const amount = m.reduced_amount ?? r.amount_usdc;
+    const chain = m.chain_status
+      ? `na cadeia: ${escapeHtml(m.chain_status)}`
+      : `cadeia indisponível${m.chain_error ? ' (' + escapeHtml(m.chain_error) + ')' : ''}`;
+    return `
+      <div class="pending-row" data-id="${escapeHtml(r.request_id)}">
+        <div class="pending-main">
+          <p class="pending-title">${escapeHtml(r.requester)} · ${CATEGORY_LABEL[r.category] || r.category}</p>
+          <p class="pending-meta">${escapeHtml(r.description)}</p>
+          <p class="chain-status">job #${escapeHtml(m.escrow_job_id)} · ${chain}</p>
+          ${failedAttemptHtml(m.failed_attempt)}
+        </div>
+        <div>
+          <p class="amount" style="text-align:right">${fmtAmount(amount)}</p>
+          <div class="actions">${milestoneButtons(m)}</div>
+        </div>
+      </div>`;
+  }).join('');
+}
+
+async function refreshOnce() {
+  const [stats, pending, ledger, integrity, milestones] = await Promise.all([
+    fetchJSON('/api/stats'),
+    fetchJSON('/api/escalations/pending'),
+    fetchJSON('/api/requests/latest'),
+    fetchJSON('/api/audit/verify'),
+    fetchJSON('/api/milestones/active'),
+  ]);
+  renderMilestones(milestones);
+  renderIntegrity(integrity);
+  renderStats(stats);
+  renderPending(pending);
+  renderLedger(ledger);
+}
+
+document.getElementById('pendingList').addEventListener('click', async (ev) => {
+  const btn = ev.target.closest('button[data-action]');
+  if (!btn) return;
+  const requestId = btn.dataset.id;
+  const action = btn.dataset.action;
+  const reviewer = document.getElementById('reviewerName').value.trim() || 'operador';
+
+  const row = btn.closest('.pending-row');
+  row.querySelectorAll('button').forEach(b => b.disabled = true);
+
+  try {
+    await fetchJSON(`/api/escalations/${encodeURIComponent(requestId)}/decision`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action, reviewer }),
+    });
+    await refresh();
+    const ledgerRow = document.querySelector(`#ledgerBody tr[data-id="${CSS.escape(requestId)}"]`);
+    if (ledgerRow) {
+      ledgerRow.classList.add('flash');
+      setTimeout(() => ledgerRow.classList.remove('flash'), 1200);
+    }
+  } catch (err) {
+    alert('Não foi possível registrar a decisão: ' + err.message);
+    row.querySelectorAll('button').forEach(b => b.disabled = false);
+  }
+});
+
+const MILESTONE_CONFIRM = {
+  release: 'Liberar o pagamento ao contratado? Esta ação é definitiva.',
+  reject: 'Rejeitar o milestone e reembolsar o valor travado?',
+};
+
+document.getElementById('ledgerBody').addEventListener('click', async (ev) => {
+  const btn = ev.target.closest('button[data-rec]');
+  if (!btn || btn.disabled) return;
+  const kind = btn.dataset.rec;
+  const id = btn.dataset.id;
+  const reviewer = document.getElementById('reviewerName').value.trim() || 'operador';
+
+  let url, body;
+  if (kind === 'reconcile') {
+    url = `/api/requests/${encodeURIComponent(id)}/reconcile`;
+    body = { reviewer };
+  } else {
+    const entry = (ledgerEntries).find(x => x.request.request_id === id);
+    if (kind === 'retry') {
+      const r = entry && entry.request;
+      const amount = entry ? (entry.payment_amount_usdc ?? entry.reduced_amount ?? r.amount_usdc) : '?';
+      const where = r ? r.counterparty_wallet : '?';
+      if (!confirm(`Tentar pagar de novo ${amount} USDC para ${where}?\n\nA tentativa anterior falhou de forma definitiva, então é seguro repetir. Usa uma nova chave de idempotência.`)) return;
+    } else if (!confirm(RECOVERY_CONFIRM.resend)) {
+      return;
+    }
+    url = `/api/requests/${encodeURIComponent(id)}/retry-payment`;
+    body = { reviewer, resend_unconfirmed: kind === 'resend' };
+  }
+
+  const original = btn.textContent;
+  btn.closest('.rec-actions').querySelectorAll('button').forEach(b => b.disabled = true);
+  btn.textContent = 'Aguardando a Circle…';
+  try {
+    const result = await fetchJSON(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (kind === 'reconcile') alert(result.message);
+    await refresh();
+  } catch (err) {
+    btn.textContent = original;
+    alert('Não foi possível concluir a ação: ' + err.message);
+    await refresh();
+  }
+});
+
+document.getElementById('milestoneList').addEventListener('click', async (ev) => {
+  const btn = ev.target.closest('button[data-ms]');
+  if (!btn || btn.disabled) return;
+  const action = btn.dataset.ms;
+  if (MILESTONE_CONFIRM[action] && !confirm(MILESTONE_CONFIRM[action])) return;
+  const reviewer = document.getElementById('reviewerName').value.trim() || 'operador';
+
+  const row = btn.closest('.pending-row');
+  row.querySelectorAll('button').forEach(b => b.disabled = true);
+  btn.textContent = 'Aguardando a blockchain…';
+  try {
+    await fetchJSON(`/api/milestones/${encodeURIComponent(btn.dataset.id)}/${action}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ reviewer }),
+    });
+    await refresh();
+  } catch (err) {
+    alert('Não foi possível concluir a ação: ' + err.message);
+    await refresh();
+  }
+});
+
+let pollTimer = null;
+
+// Never let a failed refresh escape as an unhandled rejection. Signed out:
+// stop polling (the sign-in wall is already showing). Anything else: say so
+// in the header instead of failing silently.
+async function refresh() {
+  try {
+    await refreshOnce();
+  } catch (err) {
+    if (err.code === 'AUTH') {
+      clearInterval(pollTimer);
+      return;
+    }
+    document.getElementById('statLine').textContent = 'Não foi possível atualizar: ' + err.message;
+  }
+}
+
+document.getElementById('logout').addEventListener('click', (ev) => { ev.preventDefault(); ManagerAuth.logout(); });
+
+if (ManagerAuth.ensure()) {
+  refresh();
+  pollTimer = setInterval(refresh, 15000);
+}
+</script>
+</body>
+</html>

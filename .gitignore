@@ -17,6 +17,10 @@ recovery/
 # Not committed: the public repository is English-only.
 docs/spec-projeto-tameion.md
 
+# Personal working notes: not part of the deliverable.
+docs/TODO.md
+docs/revisao-priorizada.md
+
 # --- Local runtime data ---
 # Audit log and any other local state written at runtime (see AUDIT_LOG_PATH).
 data/
@@ -67,3 +71,8 @@ desktop.ini
 # Rewritten by demo/seed_scenarios.py on every run (demo/run_demo.sh calls it
 # first), so these are generated artifacts, not source.
 demo/scenarios/
+
+# Business rules: generated with defaults on first read (src/config.py), then
+# edited per deployment. Machine-specific, so not versioned -- the defaults
+# live in src/config.py and the file is recreated on demand.
+config/rules.yaml

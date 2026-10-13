@@ -4,6 +4,7 @@ Extracted out of src/main.py so the CLI and the HTTP API (src/api.py) share
 one implementation instead of two copies that could drift apart.
 """
 
+import logging
 import os
 import threading
 from dataclasses import dataclass
@@ -16,16 +17,25 @@ from dotenv import load_dotenv
 # import time.
 load_dotenv()
 
-from src.audit.logger import AuditEntry, build_entry
+from src.audit.logger import AuditEntry, FailedAttempt, build_entry
 from src.audit.store import append_entry, read_latest_per_request
 from src.decision_engine.engine import DecisionEngine
 from src.decision_engine.fallback_classifier import TypeSafeCompatibleEngine
 from src.decision_engine.jev_client import JevDecisionEngine
 from src.decision_engine.mock_engine import MockDecisionEngine
-from src.payments.arc_client import ArcPaymentClient
+from src.history import compute_history
+from src.money import parse_usdc
+from src.payments.arc_client import (
+    ArcPaymentClient,
+    PaymentUnconfirmedError,
+    payment_idempotency_key,
+)
 from src.payments.escrow import EscrowClient, EscrowError
+from src.payees import PayeeRegistry
 from src.policy.rules import Decision, apply_policy
 from src.requests.schema import PaymentRequest, RequestCategory
+
+logger = logging.getLogger(__name__)
 
 # Engines selectable through the DECISION_ENGINE environment variable.
 ENGINES: dict[str, type[DecisionEngine]] = {
@@ -33,6 +43,12 @@ ENGINES: dict[str, type[DecisionEngine]] = {
     "jev": JevDecisionEngine,  # real Jev API (needs JEV_API_KEY)
     "mock": MockDecisionEngine,  # offline keyword heuristics, demo only
 }
+
+# A payment_status meaning "sent, outcome unknown". Nothing writes this today
+# (the pending row carries a `payment_attempt` marker instead, keeping
+# payment_status for real outcomes), but `_in_flight` honours it so a future
+# implementation cannot silently lose the double-spend guard.
+_PENDING_STATUS = "pending"
 
 
 def build_engine_from_env() -> DecisionEngine:
@@ -63,6 +79,36 @@ class AlreadyReviewedError(RuntimeError):
     """An escalated request was already approved or denied by a human."""
 
 
+class PaymentInFlightError(RuntimeError):
+    """An operation for this request left our hands without a final outcome.
+
+    A transfer was sent (or an escrow job opened) and the process died before
+    the outcome could be recorded. Paying again here is precisely the
+    double-spend this guard exists to prevent, so the caller must reconcile
+    against Circle/Arc instead.
+    """
+
+
+class PaymentRecoveryError(RuntimeError):
+    """Reconciling or retrying a payment was refused or could not be done."""
+
+
+class PaymentNotFoundError(PaymentRecoveryError):
+    """No such request in the audit log."""
+
+
+class PaymentStateError(PaymentRecoveryError):
+    """The request is not in a state this recovery action applies to."""
+
+
+class PaymentLookupError(PaymentRecoveryError):
+    """Circle could not be asked, or its answer cannot be trusted.
+
+    Nothing was recorded and nothing was sent: when in doubt the request stays
+    exactly as it was.
+    """
+
+
 class MilestoneError(RuntimeError):
     """A milestone action is not valid for the request's current state."""
 
@@ -89,7 +135,10 @@ def _lock_for(request_id: str) -> threading.Lock:
 class PaymentOutcome:
     """What happened when we tried to pay an approved request."""
 
-    # "executed" | "failed" | "skipped" for plain transfers; milestone escrow
+    # "executed" | "failed" | "skipped" | "unconfirmed" for plain transfers;
+    # "unconfirmed" means the transfer may have been sent and its outcome could
+    # not be established: it is NOT a failure and keeps the in-flight marker.
+    # Milestone escrow
     # adds "escrow_open" (job created, contractor has not set a budget yet),
     # "escrowed" (funds locked in the contract), "refunded".
     status: str
@@ -104,7 +153,7 @@ class PaymentOutcome:
 
 
 def _attempt_payment(
-    request: PaymentRequest, amount_usdc: float, memo: str, arc_client=None
+    request: PaymentRequest, amount_usdc: float, memo: str, arc_client=None, attempt: int = 1
 ) -> PaymentOutcome:
     """Try to pay `amount_usdc` for an already-approved request.
 
@@ -122,6 +171,19 @@ def _attempt_payment(
             destination_wallet=request.counterparty_wallet,
             amount_usdc=amount_usdc,
             memo=memo,
+            # The same request always produces the same key, so a repeat of
+            # this call (a retry, a double click that slipped past the lock, a
+            # replay after a crash) cannot make Circle move the money twice.
+            idempotency_key=payment_idempotency_key(request.request_id, attempt),
+            ref_id=request.request_id,
+        )
+    except PaymentUnconfirmedError as e:
+        # Must come before the broad handler below: reporting this as
+        # "failed" would invite a retry of a transfer that may have completed.
+        return PaymentOutcome(
+            "unconfirmed",
+            f"{type(e).__name__}: {e}",
+            result={"transaction_id": e.transaction_id} if e.transaction_id else None,
         )
     except Exception as e:  # noqa: BLE001 -- see below
         # Deliberately broad: whatever went wrong (bad credentials, network,
@@ -192,18 +254,149 @@ def _open_escrow(request: PaymentRequest, amount_usdc: float, escrow=None) -> Pa
 
 
 def _settle(
-    request: PaymentRequest, amount_usdc: float, memo: str, arc_client=None, escrow=None
+    request: PaymentRequest, amount_usdc: float, memo: str, arc_client=None, escrow=None, attempt: int = 1
 ) -> PaymentOutcome:
     """Pay an approved request: via escrow for contractor milestones,
     otherwise as a direct transfer."""
     if _uses_escrow(request):
         return _open_escrow(request, amount_usdc, escrow=escrow)
-    return _attempt_payment(request, amount_usdc, memo, arc_client)
+    return _attempt_payment(request, amount_usdc, memo, arc_client, attempt=attempt)
 
 
 def _engine_name(engine) -> str:
     name = getattr(engine, "name", None)
     return name if isinstance(name, str) else type(engine).__name__
+
+
+def _in_flight(existing: AuditEntry | None) -> bool:
+    """True when `existing` says an operation left our hands without an outcome.
+
+    `existing` must be the NEWEST row of the request (see `_latest_for`): a
+    request can have several rows (a pending row plus its outcome, or a failed
+    attempt) and only the latest says where things stand.
+
+    The marker is cleared by a FINAL outcome (executed, failed, skipped...).
+    The one outcome that keeps it is "unconfirmed" -- the transfer may have
+    gone out and we could not find out -- which is exactly the state in which
+    paying again is the double-spend.
+    """
+    if existing is None:
+        return False
+    marker = getattr(existing, "payment_attempt", None)
+    status = getattr(existing, "payment_status", None)
+    # A marker still present means nothing has replaced it with an outcome.
+    return marker is not None or status == _PENDING_STATUS
+
+
+def _latest_for(entries: list[AuditEntry], request_id: str) -> AuditEntry | None:
+    """The newest row of `request_id`, whatever order `entries` arrived in."""
+    mine = [e for e in entries if e.request.request_id == request_id]
+    if not mine:
+        return None
+    return max(mine, key=lambda e: e.timestamp)
+
+
+def _attempt_description(request: PaymentRequest, amount_usdc: float) -> str:
+    """What the in-flight marker says we were about to do."""
+    wallet = request.counterparty_wallet or "(no wallet)"
+    if _uses_escrow(request):
+        return f"escrow {amount_usdc} USDC for {wallet}"
+    return f"transfer {amount_usdc} USDC to {wallet}"
+
+
+def _pending_entry(
+    request: PaymentRequest,
+    scores,
+    policy_decision,
+    amount_usdc: float,
+    engine_name: str,
+) -> AuditEntry:
+    """The entry written BEFORE any money moves (SEV-02).
+
+    Without this, a crash between sending the transfer and writing the result
+    leaves no trace, so a retry pays a second time. The marker makes that
+    window visible: `payment_attempt` records exactly what we were about to
+    do, `payment_amount_usdc` records how much, and `payment_status` stays
+    "not_applicable" until something actually happens.
+    """
+    attempt = _attempt_description(request, amount_usdc)
+    return build_entry(
+        request=request,
+        scores=scores,
+        policy_decision=policy_decision,
+        payment_executed=False,
+        payment_status="not_applicable",
+        payment_detail="Payment attempt in flight; this row is replaced by the outcome.",
+        engine_name=engine_name,
+        payment_attempt=attempt,
+        payment_amount_usdc=amount_usdc,
+    )
+
+
+def _confirm_entry(current: AuditEntry, outcome: PaymentOutcome, reason: str | None = None) -> AuditEntry:
+    """The entry written AFTER the attempt settled.
+
+    Built from the pending row so the decision, scores and evidence are
+    carried over unchanged; only the payment fields and the timestamp are
+    replaced (and `reason`, when the caller has one to add).
+
+    `payment_attempt` is cleared by a final outcome: the marker and a final
+    outcome must never both be present, which is what `_in_flight` reads. The
+    exception is "unconfirmed", where the marker is deliberately KEPT: the
+    transfer may have gone out, so the request has to stay blocked until
+    someone reconciles it against Circle/Arc.
+    """
+    unconfirmed = outcome.status == "unconfirmed"
+    updates = {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "payment_executed": outcome.executed,
+        "transaction_id": (outcome.result or {}).get("transaction_id"),
+        "tx_hash": (outcome.result or {}).get("tx_hash"),
+        "payment_status": outcome.status,
+        "payment_detail": outcome.detail,
+        "escrow_job_id": outcome.escrow_job_id,
+        "escrow_status": outcome.escrow_status,
+        "payment_attempt": current.payment_attempt if unconfirmed else None,
+    }
+    if reason is not None:
+        updates["reason"] = reason
+    return current.model_copy(update=updates)
+
+
+def _settle_recorded(
+    pending: AuditEntry,
+    request: PaymentRequest,
+    amount_usdc: float,
+    memo: str,
+    arc_client=None,
+    escrow=None,
+    reason_after=None,
+) -> tuple[AuditEntry, PaymentOutcome]:
+    """The ONE way money leaves: record the intent, pay, record the outcome.
+
+    Both paths that pay (the automatic pipeline and a human's approval of an
+    escalation) go through here, so neither can skip the step that makes a
+    crash visible. Before this existed only `run_pipeline` wrote the pending
+    row; a human approval paid first and recorded afterwards, so a crash in
+    between left no trace and approving again paid twice.
+
+    `pending` must carry the `payment_attempt` marker. It is appended BEFORE
+    anything moves; the returned entry (already appended) is the outcome.
+    `reason_after(outcome)` may return a new reason for the outcome row.
+    """
+    append_entry(pending)
+    outcome = _settle(
+        request,
+        amount_usdc=amount_usdc,
+        memo=memo,
+        arc_client=arc_client,
+        escrow=escrow,
+        attempt=pending.attempt_number or 1,
+    )
+    reason = reason_after(outcome) if reason_after else None
+    entry = _confirm_entry(pending, outcome, reason=reason)
+    append_entry(entry)
+    return entry, outcome
 
 
 def run_pipeline(
@@ -217,43 +410,75 @@ def run_pipeline(
     on-chain execution, then persist and return the resulting audit entry.
 
     Raises DuplicateRequestError if this request_id was already processed:
-    every request is decided and paid at most once.
+    every request is decided and paid at most once, and InvalidAmountError (a
+    ValueError) if the amount is not something USDC can pay: not positive, not
+    finite, or with more than 6 decimal places. That is checked first, before the
+    engine is called or anything is logged, so a request that could never be paid
+    does not consume a scoring call or reach a human's queue.
+
+    When a payment is due, TWO entries are appended: a `pending` row before
+    anything moves, and the outcome row after. See `_pending_entry`.
     """
+    parse_usdc(request.amount_usdc)
+
     with _lock_for(request.request_id):
-        if any(e.request.request_id == request.request_id for e in read_latest_per_request()):
+        entries = read_latest_per_request()
+        existing = _latest_for(entries, request.request_id)
+        if existing is not None:
+            # An unfinished attempt means money may already be in flight: refuse
+            # before re-paying, and say so distinctly from "already processed".
+            if _in_flight(existing):
+                raise PaymentInFlightError(
+                    f"Request {request.request_id!r} has a payment in flight "
+                    f"({existing.payment_attempt or 'recorded but unconfirmed'}). "
+                    "Refusing to pay again: reconcile it against Circle/Arc first."
+                )
             raise DuplicateRequestError(
                 f"Request {request.request_id!r} was already processed; "
                 "use a new request_id to submit a new payment."
             )
 
         engine = engine or DEFAULT_ENGINE_FACTORY()
-        scores = engine.score(request)
-        policy_decision = apply_policy(request, scores)
+        # Stamp when the system received this request, unless the caller set it
+        # (demo seeds and calibration scenarios do, to stay reproducible). The
+        # hour of day is a strong fraud signal and nothing else records it.
+        if request.submitted_at is None:
+            request = request.model_copy(update={"submitted_at": datetime.now(timezone.utc)})
+        # What the system has recorded about this requester and destination.
+        history = compute_history(request, entries)
+        scores = engine.score(request, history=history)
+        # Who may be paid where: the registry from config, taught by the log.
+        # Built per request from the entries already in hand, so a payee that
+        # has been paid successfully before is known without anyone typing it in.
+        payee_registry = PayeeRegistry.from_config().learn_from_log(entries)
+        policy_decision = apply_policy(request, scores, payee_registry=payee_registry)
+        engine_name = _engine_name(engine)
 
         approved = policy_decision.decision in (Decision.APPROVE, Decision.APPROVE_REDUCED)
-        outcome: PaymentOutcome | None = None
-        if approved:
-            outcome = _settle(
+        if not approved:
+            # Nothing will move: one entry is the whole story.
+            entry = build_entry(
+                request=request,
+                scores=scores,
+                policy_decision=policy_decision,
+                payment_executed=False,
+                payment_status="not_applicable",
+                engine_name=engine_name,
+            )
+            append_entry(entry)
+            outcome = None
+        else:
+            amount = policy_decision.reduced_amount or request.amount_usdc
+            # Record the intent first, so a crash here cannot hide the attempt.
+            pending = _pending_entry(request, scores, policy_decision, amount, engine_name)
+            entry, outcome = _settle_recorded(
+                pending,
                 request,
-                amount_usdc=policy_decision.reduced_amount or request.amount_usdc,
+                amount,
                 memo=f"payment for request {request.request_id}",
                 arc_client=arc_client,
                 escrow=escrow,
             )
-
-        entry = build_entry(
-            request=request,
-            scores=scores,
-            policy_decision=policy_decision,
-            payment_executed=bool(outcome and outcome.executed),
-            payment_result=outcome.result if outcome else None,
-            payment_status=outcome.status if outcome else "not_applicable",
-            payment_detail=outcome.detail if outcome else None,
-            engine_name=_engine_name(engine),
-            escrow_job_id=outcome.escrow_job_id if outcome else None,
-            escrow_status=outcome.escrow_status if outcome else None,
-        )
-        append_entry(entry)
 
     if verbose:
         if outcome and outcome.executed:
@@ -289,6 +514,9 @@ def apply_human_override(
     Raises AlreadyReviewedError if a human already reviewed this request,
     checked against the log itself (not just `original_entry`, which may be
     stale if two reviewers click at the same moment).
+
+    Raises PaymentInFlightError if a payment for this request is already
+    recorded but unconfirmed: approving again would pay a second time.
     """
     if action not in ("approve", "deny"):
         raise ValueError(f"action must be 'approve' or 'deny', got {action!r}")
@@ -296,10 +524,17 @@ def apply_human_override(
     request = original_entry.request
 
     with _lock_for(request.request_id):
-        current = next(
-            (e for e in read_latest_per_request() if e.request.request_id == request.request_id),
-            None,
-        )
+        current = _latest_for(read_latest_per_request(), request.request_id)
+        # In flight is checked BEFORE "already reviewed": an approval whose
+        # payment is unconfirmed carries human_review="approved" too, and the
+        # useful thing to tell the operator is "reconcile it", not "someone
+        # already approved this".
+        if current is not None and _in_flight(current):
+            raise PaymentInFlightError(
+                f"Request {request.request_id!r} has a payment in flight "
+                f"({current.payment_attempt or 'recorded but unconfirmed'}). "
+                "Refusing to pay again: reconcile it against Circle/Arc first."
+            )
         if current is not None and current.human_review is not None:
             raise AlreadyReviewedError(
                 f"Request {request.request_id!r} was already {current.human_review} "
@@ -309,41 +544,254 @@ def apply_human_override(
         past_tense = {"approve": "approved", "deny": "denied"}[action]
         reason = f"Escalated request {past_tense} by human reviewer ({reviewer})."
 
-        outcome: PaymentOutcome | None = None
-        if action == "approve":
-            # A human approving an escalated milestone still goes through
-            # escrow: overriding the policy's limits must not also bypass
-            # the hold-until-verified protection.
-            outcome = _settle(
-                request,
-                amount_usdc=request.amount_usdc,
-                memo=f"human-approved payment for request {request.request_id}",
-                arc_client=arc_client,
-                escrow=escrow,
+        def human_entry(**overrides) -> AuditEntry:
+            fields = dict(
+                timestamp=datetime.now(timezone.utc).isoformat(),
+                request=request,
+                scores=original_entry.scores,
+                decision="approve" if action == "approve" else "escalate",
+                reduced_amount=None,
+                reason=reason,
+                payment_executed=False,
+                human_review="approved" if action == "approve" else "denied",
+                reviewer=reviewer,
+                engine_name=original_entry.engine_name,
+                payment_status="not_applicable",
             )
-            if not outcome.executed:
-                reason += f" Payment {outcome.status}: {outcome.detail}"
+            fields.update(overrides)
+            return AuditEntry(**fields)
 
-        entry = AuditEntry(
-            timestamp=datetime.now(timezone.utc).isoformat(),
-            request=request,
-            scores=original_entry.scores,
-            decision="approve" if action == "approve" else "escalate",
-            reduced_amount=None,
-            reason=reason,
-            payment_executed=bool(outcome and outcome.executed),
-            transaction_id=((outcome.result if outcome else None) or {}).get("transaction_id"),
-            tx_hash=((outcome.result if outcome else None) or {}).get("tx_hash"),
-            human_review="approved" if action == "approve" else "denied",
-            reviewer=reviewer,
-            engine_name=original_entry.engine_name,
-            payment_status=outcome.status if outcome else "not_applicable",
-            payment_detail=outcome.detail if outcome else None,
-            escrow_job_id=outcome.escrow_job_id if outcome else None,
-            escrow_status=outcome.escrow_status if outcome else None,
+        if action == "deny":
+            entry = human_entry()
+            append_entry(entry)
+            return entry
+
+        # A human approving an escalated milestone still goes through
+        # escrow: overriding the policy's limits must not also bypass
+        # the hold-until-verified protection.
+        #
+        # The full requested amount is deliberate: the human is overriding
+        # the policy's reduction, and the guards above (never reviewed,
+        # nothing in flight) are what make paying it exactly once safe.
+        # `payment_amount_usdc` records the figure actually authorized, so
+        # the row says what was approved without implying a policy cap.
+        #
+        # The pending row is written BEFORE the money moves, same as the
+        # automatic path (see `_settle_recorded`). It already carries the
+        # human's approval, but decision="approve" and the in-flight marker
+        # take it out of the escalation queue and make a second click refuse
+        # instead of paying again.
+        amount = request.amount_usdc
+        pending = human_entry(
+            reason=f"{reason} Payment in flight; this row is replaced by the outcome.",
+            payment_detail="Payment attempt in flight; this row is replaced by the outcome.",
+            payment_attempt=_attempt_description(request, amount),
+            payment_amount_usdc=amount,
+        )
+        entry, _ = _settle_recorded(
+            pending,
+            request,
+            amount,
+            memo=f"human-approved payment for request {request.request_id}",
+            arc_client=arc_client,
+            escrow=escrow,
+            reason_after=lambda outcome: (
+                reason if outcome.executed else f"{reason} Payment {outcome.status}: {outcome.detail}"
+            ),
+        )
+    return entry
+
+
+# --------------------------------------------------------------------------
+# Getting an approved payment out of a stuck state (review R2-03)
+# --------------------------------------------------------------------------
+#
+# A direct transfer can end up approved and not paid in three ways, and each
+# needs a different answer:
+#
+#   failed       Circle said no (or the transfer ended FAILED/CANCELLED/DENIED).
+#                The money did not move, so it is safe to try again: retry_payment
+#                with a NEW idempotency key.
+#   unconfirmed  The transfer may have gone out and we could not find out (also a
+#   or a crash   crash between "intent recorded" and "outcome recorded"). Never
+#   pending row  retried blindly: reconcile_payment asks Circle what happened and
+#                records it. Only if Circle has no record may it be resent, with
+#                the SAME key, so that Circle rather than our guess is what
+#                prevents a second transfer.
+#   skipped      Nothing was ever sent (e.g. CIRCLE_API_KEY was missing). Safe to
+#                retry once the cause is fixed.
+
+_CIRCLE_FAILED_STATES = {"FAILED", "CANCELLED", "DENIED"}
+
+
+@dataclass
+class ReconcileResult:
+    entry: AuditEntry
+    changed: bool  # False: Circle was asked, but nothing new could be recorded
+    observed: str  # Circle's state for the transfer, or "not_found"
+    message: str
+
+
+def _recovery_target(request_id: str) -> AuditEntry:
+    current = _latest_for(read_latest_per_request(), request_id)
+    if current is None:
+        raise PaymentNotFoundError(f"No request {request_id!r} in the audit log.")
+    if _uses_escrow(current.request):
+        raise PaymentStateError(
+            f"Request {request_id!r} is paid through escrow, whose state is checked on-chain "
+            "and moved with the milestone actions, not with payment recovery."
+        )
+    return current
+
+
+def _ask_circle(arc_client, current: AuditEntry) -> dict | None:
+    """Look the transfer up. Any failure becomes a PaymentLookupError."""
+    try:
+        arc_client = arc_client or ArcPaymentClient()
+        return arc_client.find_transfer(
+            ref_id=current.request.request_id,
+            transaction_id=current.transaction_id,
+            destination_wallet=current.request.counterparty_wallet,
+            since=current.timestamp,
+        )
+    except Exception as e:  # noqa: BLE001 -- the caller needs one error type, and the cause text
+        raise PaymentLookupError(
+            f"Could not ask Circle about request {current.request.request_id!r}: "
+            f"{type(e).__name__}: {e}"
+        ) from e
+
+
+def reconcile_payment(request_id: str, reviewer: str = "operator", arc_client=None) -> ReconcileResult:
+    """Find out how a payment that is "in flight" really ended, and record it.
+
+    READ ONLY against Circle: it never sends money. A transfer Circle reports
+    COMPLETE becomes `executed`; one it reports FAILED/CANCELLED/DENIED becomes
+    `failed`, which unblocks `retry_payment`. Anything else (still in progress,
+    or no record found) changes nothing and appends nothing, so pressing the
+    button repeatedly does not fill the log.
+    """
+    with _lock_for(request_id):
+        current = _recovery_target(request_id)
+        if not _in_flight(current):
+            raise PaymentStateError(
+                f"Request {request_id!r} has no payment in flight to reconcile "
+                f"(payment status: {current.payment_status!r})."
+            )
+
+        found = _ask_circle(arc_client, current)
+        if found is None:
+            return ReconcileResult(
+                current, False, "not_found",
+                "Circle has no transfer for this request in the searched window. It may never have "
+                "been sent, or the search missed it; nothing was recorded.",
+            )
+
+        state = (found.get("state") or "").upper()
+        if state == "COMPLETE":
+            outcome = PaymentOutcome(
+                "executed", result={"transaction_id": found.get("transaction_id"), "tx_hash": found.get("tx_hash")}
+            )
+        elif state in _CIRCLE_FAILED_STATES:
+            detail = f"Circle reports the transfer {state}"
+            if found.get("error_reason"):
+                detail += f": {found['error_reason']}"
+            outcome = PaymentOutcome("failed", detail, result={"transaction_id": found.get("transaction_id")})
+        else:
+            return ReconcileResult(
+                current, False, state or "unknown",
+                f"Circle reports the transfer as {state or 'in an unreported state'}: not final yet, "
+                "so nothing was recorded. Try again in a moment.",
+            )
+
+        entry = _confirm_entry(
+            current, outcome,
+            reason=f"{current.reason} Reconciled against Circle by {reviewer}: transfer {state}.",
         )
         append_entry(entry)
-    return entry
+        return ReconcileResult(entry, True, state, f"Recorded: the transfer is {state}.")
+
+
+def retry_payment(
+    request_id: str,
+    reviewer: str = "operator",
+    arc_client=None,
+    resend_unconfirmed: bool = False,
+) -> AuditEntry:
+    """Try again to pay a request that was approved but never paid.
+
+    Goes through the same record-then-pay path as every other payment
+    (`_settle_recorded`), so a crash during the retry is as visible as one during
+    the first attempt.
+
+    - after a definite failure (`failed`) the retry uses a NEW attempt number,
+      hence a new Circle idempotency key: the old one may replay the failure;
+    - after `skipped` (nothing was ever sent) the attempt number is unchanged;
+    - a payment still in flight is refused, unless `resend_unconfirmed` is set AND
+      a fresh look at Circle finds no record of it. That resend reuses the SAME
+      key, so if the transfer does exist Circle answers with it instead of
+      creating a second one.
+    """
+    with _lock_for(request_id):
+        current = _recovery_target(request_id)
+        request = current.request
+
+        if current.decision not in ("approve", "approve_reduced"):
+            raise PaymentStateError(
+                f"Request {request_id!r} is not an approved payment (decision: {current.decision!r})."
+            )
+        if current.payment_executed or current.payment_status == "executed":
+            raise PaymentStateError(f"Request {request_id!r} was already paid.")
+        if not request.counterparty_wallet:
+            raise PaymentStateError(f"Request {request_id!r} has no counterparty_wallet to pay.")
+
+        amount = current.payment_amount_usdc or current.reduced_amount or request.amount_usdc
+        attempt = current.attempt_number or 1
+
+        if _in_flight(current):
+            if not resend_unconfirmed:
+                raise PaymentInFlightError(
+                    f"Request {request_id!r} has a payment in flight "
+                    f"({current.payment_attempt or 'unconfirmed'}). Reconcile it against Circle first; "
+                    "only if Circle has no record may it be resent."
+                )
+            found = _ask_circle(arc_client, current)
+            if found is not None:
+                raise PaymentStateError(
+                    f"Circle already has a transfer for request {request_id!r} "
+                    f"(state: {found.get('state')}). Reconcile it instead of sending again."
+                )
+            # Same attempt, same key: Circle, not our guess, decides if it exists.
+        elif current.payment_status == "failed":
+            attempt += 1
+        elif current.payment_status != "skipped":
+            raise PaymentStateError(
+                f"Request {request_id!r} cannot be retried from payment status {current.payment_status!r}."
+            )
+
+        pending = current.model_copy(
+            update={
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "payment_attempt": _attempt_description(request, amount),
+                "payment_amount_usdc": amount,
+                "payment_status": "not_applicable",
+                "payment_executed": False,
+                "payment_detail": "Payment retry in flight; this row is replaced by the outcome.",
+                "transaction_id": None,
+                "tx_hash": None,
+                "attempt_number": attempt,
+            }
+        )
+        entry, _ = _settle_recorded(
+            pending,
+            request,
+            amount,
+            memo=f"retry (attempt {attempt}) of payment for request {request_id}",
+            arc_client=arc_client,
+            reason_after=lambda outcome: (
+                f"{current.reason} Payment retried by {reviewer} (attempt {attempt}): {outcome.status}."
+            ),
+        )
+        return entry
 
 
 # --------------------------------------------------------------------------
@@ -363,6 +811,51 @@ _MILESTONE_ALLOWED = {
 MILESTONE_ACTIONS = tuple(_MILESTONE_ALLOWED)
 
 
+_MAX_ERROR_CHARS = 500
+
+
+def _record_failed_attempt(current: AuditEntry, action: str, reviewer: str, error: Exception) -> None:
+    """Append a failed escrow action to the audit log, best effort.
+
+    The escrow state is deliberately left as it was: funds did not move, so
+    the log must not claim they did (nor that they did not exist).
+
+    Two safeguards:
+    - A failure identical to the one already on top of the log (same action,
+      same error) is not appended again. The API has no authentication, so
+      without this anyone could grow the hash-chained log without bound by
+      repeating a bad request.
+    - Writing this entry must never hide the real error: if the log write
+      itself fails, that is reported via `logging` and the caller still
+      gets the original exception.
+    """
+    text = str(error) if isinstance(error, EscrowError) else f"{type(error).__name__}: {error}"
+    text = text[:_MAX_ERROR_CHARS] or type(error).__name__
+
+    previous = current.failed_attempt
+    if previous is not None and previous.action == action and previous.error == text:
+        return
+
+    attempt = FailedAttempt(
+        action=action,
+        error=text,
+        transaction_id=getattr(error, "transaction_id", None),
+        tx_hash=getattr(error, "tx_hash", None),
+    )
+    entry = current.model_copy(
+        update={
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "reviewer": reviewer,
+            "reason": f"Attempt to {action} by {reviewer} failed; escrow unchanged. {text}",
+            "failed_attempt": attempt,
+        }
+    )
+    try:
+        append_entry(entry)
+    except Exception:  # noqa: BLE001
+        logger.exception("Could not record the failed %s attempt for %s", action, current.request.request_id)
+
+
 def advance_milestone(
     request_id: str,
     action: str,
@@ -378,9 +871,13 @@ def advance_milestone(
     release  verified: release the escrowed funds to the contractor
     reject   not delivered: refund the escrow to the treasury
 
-    Each step appends a new entry (the log stays append-only). A transaction
-    that fails raises and logs nothing: the escrow is exactly where it was
-    and the operator can retry.
+    Each step appends a new entry (the log stays append-only). If the escrow
+    layer fails (a transaction reverts, Circle errors, the budget does not
+    match what was approved...), the failure is appended too, as a copy of
+    the current entry carrying `failed_attempt` with the escrow state left
+    untouched, and the error is re-raised so the caller sees it. Refusals
+    made before reaching the escrow (unknown request, wrong state) are not
+    logged: they never touched anything.
     """
     if action not in _MILESTONE_ALLOWED:
         raise ValueError(f"action must be one of {MILESTONE_ACTIONS}, got {action!r}")
@@ -400,27 +897,33 @@ def advance_milestone(
         request = current.request
         job_id = current.escrow_job_id
         amount = current.reduced_amount or request.amount_usdc
-        escrow = escrow or EscrowClient()
 
-        updates: dict = {}
-        if action == "fund":
-            tx = escrow.fund(job_id, amount)
-            updates = dict(escrow_status="funded", payment_status="escrowed",
-                           reason=f"Escrow funded: {amount} USDC locked in job {job_id}.")
-        elif action == "deliver":
-            if not provider_is_ours(request):
-                raise MilestoneError("The contractor's wallet is not one we control; they must submit themselves.")
-            tx = escrow.submit(job_id, f"deliverable:{request_id}", provider_wallet=request.counterparty_wallet)
-            updates = dict(escrow_status="submitted", payment_status="escrowed",
-                           reason=f"Contractor submitted the deliverable for job {job_id} (simulated).")
-        elif action == "release":
-            tx = escrow.complete(job_id, reason or f"milestone verified by {reviewer}")
-            updates = dict(escrow_status="released", payment_status="executed", payment_executed=True,
-                           reason=f"Milestone verified by {reviewer}; escrow released to the contractor.")
-        else:  # reject
-            tx = escrow.reject(job_id, reason or f"milestone rejected by {reviewer}")
-            updates = dict(escrow_status="rejected", payment_status="refunded",
-                           reason=f"Milestone rejected by {reviewer}; escrow refunded to the treasury.")
+        # A state refusal, not an attempt: checked before the try so it is
+        # not logged as a failure.
+        if action == "deliver" and not provider_is_ours(request):
+            raise MilestoneError("The contractor's wallet is not one we control; they must submit themselves.")
+
+        try:
+            escrow = escrow or EscrowClient()
+            if action == "fund":
+                tx = escrow.fund(job_id, amount)
+                updates = dict(escrow_status="funded", payment_status="escrowed",
+                               reason=f"Escrow funded: {amount} USDC locked in job {job_id}.")
+            elif action == "deliver":
+                tx = escrow.submit(job_id, f"deliverable:{request_id}", provider_wallet=request.counterparty_wallet)
+                updates = dict(escrow_status="submitted", payment_status="escrowed",
+                               reason=f"Contractor submitted the deliverable for job {job_id} (simulated).")
+            elif action == "release":
+                tx = escrow.complete(job_id, reason or f"milestone verified by {reviewer}")
+                updates = dict(escrow_status="released", payment_status="executed", payment_executed=True,
+                               reason=f"Milestone verified by {reviewer}; escrow released to the contractor.")
+            else:  # reject
+                tx = escrow.reject(job_id, reason or f"milestone rejected by {reviewer}")
+                updates = dict(escrow_status="rejected", payment_status="refunded",
+                               reason=f"Milestone rejected by {reviewer}; escrow refunded to the treasury.")
+        except Exception as e:
+            _record_failed_attempt(current, action, reviewer, e)
+            raise
 
         entry = current.model_copy(
             update={
@@ -430,6 +933,7 @@ def advance_milestone(
                 "payment_detail": None,
                 "transaction_id": tx["transaction_id"],
                 "tx_hash": tx["tx_hash"],
+                "failed_attempt": None,  # a success clears the last failure
             }
         )
         append_entry(entry)

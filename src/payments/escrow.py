@@ -36,12 +36,12 @@ VERIFICATION STATUS (read before relying on this):
 import os
 import time
 from dataclasses import dataclass
-from decimal import Decimal
 
 from circle.web3 import developer_controlled_wallets as dcw
 from circle.web3 import utils
 from web3 import Web3
 
+from src.money import usdc_to_base_units as _money_usdc_to_base_units
 from src.payments.arc_client import (
     ARC_BLOCKCHAIN,
     ARC_TESTNET_USDC_ADDRESS,
@@ -103,26 +103,27 @@ _ABI = [
 
 
 class EscrowError(RuntimeError):
-    """An escrow operation could not be completed (before or on-chain)."""
+    """An escrow operation could not be completed (before or on-chain).
+
+    When a transaction was actually sent and then failed, `transaction_id`
+    (Circle's id) and `tx_hash` identify it, so the audit log can point at
+    the exact failed transaction. Both are None for refusals made before
+    anything was sent.
+    """
+
+    def __init__(self, message: str, *, transaction_id: str | None = None, tx_hash: str | None = None):
+        super().__init__(message)
+        self.transaction_id = transaction_id
+        self.tx_hash = tx_hash
 
 
 class EscrowBudgetMismatchError(EscrowError):
     """The budget on the job is not the amount our policy approved."""
 
 
-def usdc_to_base_units(amount_usdc: float) -> int:
-    """Convert a USDC amount to the 6-decimal integer the contract uses.
-
-    Goes through Decimal(str(x)) so 0.1 + 0.2-style float noise cannot leak
-    in, and refuses amounts with more precision than USDC has rather than
-    silently rounding money.
-    """
-    scaled = Decimal(str(amount_usdc)) * (10**USDC_DECIMALS)
-    if scaled != scaled.to_integral_value():
-        raise ValueError(f"{amount_usdc} USDC has more than {USDC_DECIMALS} decimal places.")
-    if scaled <= 0:
-        raise ValueError("Escrow amount must be positive.")
-    return int(scaled)
+# Re-exported for callers and tests: the conversion lives in `src.money`, shared with the
+# direct-transfer path, so both ways of paying round, reject and format money the same way.
+usdc_to_base_units = _money_usdc_to_base_units
 
 
 def text_to_bytes32(text: str) -> str:
@@ -398,12 +399,17 @@ class EscrowClient:
             if state in TERMINAL_STATES:
                 break
 
-        if state != "COMPLETE":
-            raise EscrowError(
-                f"Failed to {label}: transaction {transaction_id} ended as {state or 'TIMEOUT'}."
-            )
         # Aliased to "txHash" in to_dict() output (see arc_client.py).
         tx_hash = transaction.get("txHash")
+        if state != "COMPLETE":
+            raise EscrowError(
+                f"Failed to {label}: transaction {transaction_id} ended as {state or 'TIMEOUT'}.",
+                transaction_id=transaction_id,
+                tx_hash=tx_hash,
+            )
         if not tx_hash:
-            raise EscrowError(f"Failed to {label}: transaction {transaction_id} has no tx hash.")
+            raise EscrowError(
+                f"Failed to {label}: transaction {transaction_id} has no tx hash.",
+                transaction_id=transaction_id,
+            )
         return {"transaction_id": transaction_id, "tx_hash": tx_hash, "state": state, "label": label}

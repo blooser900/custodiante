@@ -34,13 +34,8 @@ engines must stay interchangeable behind the DecisionEngine interface.
 
 import os
 
-import httpx
-
-from src.config import ScoringCriteria, load_config
-from src.decision_engine._http import post_with_retry
-from src.decision_engine.criteria import build_questions, build_state, normalize_score
-from src.decision_engine.engine import DecisionEngine, DecisionScores, ScoreResult
-from src.requests.schema import PaymentRequest
+from src.decision_engine.criteria import build_questions, build_state
+from src.decision_engine.system_one import FROM_ENV, SystemOneEngine
 
 # Defaults match Kev's own quick-start (local server, no API key needed
 # unless KEV_API_KEY was set when the server was started).
@@ -48,13 +43,12 @@ FALLBACK_API_URL = os.environ.get("FALLBACK_API_URL", "http://127.0.0.1:8009/v1/
 FALLBACK_API_KEY = os.environ.get("FALLBACK_API_KEY", "local")
 FALLBACK_MODEL = os.environ.get("FALLBACK_MODEL", "kev-latest")
 
-
 # Kept for backwards compatibility; the shared builders live in criteria.py.
 _build_state = build_state
 _build_questions = build_questions
 
 
-class TypeSafeCompatibleEngine(DecisionEngine):
+class TypeSafeCompatibleEngine(SystemOneEngine):
     """Generic client for any server implementing the System One API.
 
     Works against Kev out of the box. Also works against the real Jev API
@@ -70,54 +64,23 @@ class TypeSafeCompatibleEngine(DecisionEngine):
         api_url: str = FALLBACK_API_URL,
         api_key: str = FALLBACK_API_KEY,
         model: str = FALLBACK_MODEL,
+        timeout: float | None = FROM_ENV,
     ) -> None:
-        self.api_url = api_url
-        self.api_key = api_key
-        self.model = model
+        super().__init__(api_url, api_key, model, timeout)
 
-    def score(self, request: PaymentRequest) -> DecisionScores:
-        if not self.api_key:
-            raise RuntimeError(
-                "FALLBACK_API_KEY is empty. Kev's local server doesn't "
-                "check it by default, but an empty Bearer token is still "
-                "rejected as a malformed header before the request is sent."
-            )
+    def _missing_key_message(self) -> str:
+        return (
+            "FALLBACK_API_KEY is empty. Kev's local server doesn't "
+            "check it by default, but an empty Bearer token is still "
+            "rejected as a malformed header before the request is sent."
+        )
 
-        criteria = load_config().criteria
-        payload = {
-            "model": self.model,
-            "state": build_state(request),
-            "questions": build_questions(criteria),
-        }
-        headers = {
-            "Authorization": f"Bearer {self.api_key}",
-            "Content-Type": "application/json",
-        }
-
-        try:
-            response = post_with_retry(self.api_url, payload, headers)
-        except httpx.HTTPError as e:
-            raise RuntimeError(
-                f"Could not reach the decision engine at {self.api_url}. "
-                "Is Kev running? Start it with:\n"
-                "  uv run --extra serve python -m kev.serve "
-                f"--run jaredpalmer/kev-4b --port 8009\n(original error: {e})"
-            ) from e
-        answers = response.json()["answers"]
-
-        return DecisionScores(
-            trust=ScoreResult(
-                value=normalize_score(answers["trust"]["score"], len(criteria.trust)),
-                confidence=answers["trust"]["confidence"],
-            ),
-            urgency=ScoreResult(
-                value=normalize_score(answers["urgency"]["score"], len(criteria.urgency)),
-                confidence=answers["urgency"]["confidence"],
-            ),
-            importance=ScoreResult(
-                value=normalize_score(answers["importance"]["score"], len(criteria.importance)),
-                confidence=answers["importance"]["confidence"],
-            ),
+    def _unreachable_message(self, error: Exception) -> str:
+        return (
+            f"Could not reach the decision engine at {self.api_url}. "
+            "Is Kev running? Start it with:\n"
+            "  uv run --extra serve python -m kev.serve "
+            f"--run jaredpalmer/kev-4b --port 8009\n(original error: {error})"
         )
 
 

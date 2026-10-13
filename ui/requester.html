@@ -1,0 +1,327 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Tameion · Livro de pagamentos</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<style>
+
+  :root {
+    --paper: #EEF2EA;
+    --paper-line: #C9D3C3;
+    --ink: #1E2A22;
+    --ink-soft: #4B5A4F;
+    --gold: #9C6B1F;
+    --gold-bg: #F1E6D2;
+    --rust: #8B3A2B;
+    --rust-bg: #F3E2DD;
+    --slate: #52514C;
+    --slate-bg: #E7E5E0;
+    --focus: #2C5AA0;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: 'IBM Plex Sans', system-ui, sans-serif;
+    line-height: 1.5;
+  }
+
+  a { color: var(--gold); }
+
+  :focus-visible {
+    outline: 2px solid var(--focus);
+    outline-offset: 2px;
+  }
+
+  .page {
+    max-width: 920px;
+    margin: 0 auto;
+    padding: 2rem 1.25rem 4rem;
+  }
+
+  header.top {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 0.75rem 1.5rem;
+    border-bottom: 1px solid var(--paper-line);
+    padding-bottom: 1.25rem;
+    margin-bottom: 2rem;
+  }
+
+  h1 {
+    font-family: 'Source Serif 4', serif;
+    font-weight: 600;
+    font-size: 1.75rem;
+    margin: 0;
+  }
+
+  .stat-line {
+    font-size: 0.9rem;
+    color: var(--ink-soft);
+  }
+  .stat-line strong { color: var(--ink); font-weight: 600; }
+
+  section { margin-bottom: 2.75rem; }
+
+  h2 {
+    font-family: 'Source Serif 4', serif;
+    font-size: 1.15rem;
+    font-weight: 600;
+    margin: 0 0 0.9rem;
+  }
+
+  .empty {
+    color: var(--ink-soft);
+    font-size: 0.92rem;
+    padding: 0.75rem 0;
+    border-top: 1px solid var(--paper-line);
+  }
+
+  button {
+    font-family: 'IBM Plex Sans', sans-serif;
+    font-size: 0.88rem;
+    font-weight: 500;
+    padding: 0.45rem 0.9rem;
+    border-radius: 3px;
+    border: 1px solid transparent;
+    cursor: pointer;
+  }
+  button.approve { background: var(--gold); color: #fff; }
+  button.approve:hover { background: #875D1A; }
+  button.deny { background: transparent; color: var(--rust); border-color: var(--rust); }
+  button.deny:hover { background: var(--rust-bg); }
+  button.primary { background: var(--ink); color: var(--paper); }
+  button.primary:hover { background: #324539; }
+  button:disabled { opacity: 0.5; cursor: default; }
+
+
+  .lede { margin: 0.4rem 0 0; color: var(--ink-soft); font-size: 0.95rem; max-width: 40rem; }
+  form.new-request {
+    border-top: 1px solid var(--paper-line);
+    padding-top: 1rem;
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 0.9rem 1.25rem;
+  }
+  form.new-request .full { grid-column: 1 / -1; }
+  .hint { font-size: 0.78rem; color: var(--ink-soft); margin: 0.25rem 0 0; }
+  .form-actions { grid-column: 1 / -1; display: flex; align-items: center; gap: 0.9rem; flex-wrap: wrap; }
+  .form-result { font-size: 0.88rem; color: var(--ink-soft); }
+  .form-result.error { color: var(--rust); }
+
+  .req-row {
+    border-top: 1px solid var(--paper-line);
+    padding: 0.9rem 0;
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 0.25rem 1.5rem;
+    align-items: start;
+  }
+  .req-title { margin: 0; font-weight: 600; }
+  .req-meta { margin: 0.15rem 0 0; font-size: 0.82rem; color: var(--ink-soft); }
+  .req-amount { font-family: 'IBM Plex Mono', monospace; text-align: right; margin: 0; }
+  .req-amount small { display: block; font-size: 0.78rem; color: var(--ink-soft); }
+  .state {
+    display: inline-block; font-size: 0.78rem; font-weight: 600;
+    padding: 0.15rem 0.55rem; border-radius: 999px; margin-top: 0.35rem;
+  }
+  .state.in_review { background: var(--slate-bg); color: var(--slate); }
+  .state.approved { background: var(--gold-bg); color: var(--gold); }
+  .state.paid { background: #DDEBDD; color: #2F5D34; }
+  .state.declined { background: var(--rust-bg); color: var(--rust); }
+  .tx-link { font-family: 'IBM Plex Mono', monospace; font-size: 0.8rem; }
+
+  @media (max-width: 640px) { form.new-request { grid-template-columns: 1fr; } }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <header class="top">
+    <div>
+      <h1>Solicitar pagamento</h1>
+      <p class="lede">Envie um pedido e acompanhe o andamento. Você verá o status de cada pedido que enviou neste navegador.</p>
+    </div>
+  </header>
+
+  <section>
+    <h2>Novo pedido</h2>
+    <form class="new-request" id="newRequestForm">
+      <div>
+        <label for="f-category">Categoria</label>
+        <select id="f-category" required>
+          <option value="contractor_milestone">Entrega de contratado (milestone)</option>
+          <option value="supply_purchase">Compra de insumo</option>
+          <option value="operational_expense">Despesa operacional</option>
+          <option value="other">Outro</option>
+        </select>
+      </div>
+      <div>
+        <label for="f-amount">Valor (USDC)</label>
+        <input id="f-amount" type="number" step="0.01" min="0.01" required />
+      </div>
+      <div>
+        <label for="f-requester">Seu nome ou área</label>
+        <input id="f-requester" type="text" maxlength="100" required />
+      </div>
+      <div>
+        <label for="f-wallet">Carteira de destino</label>
+        <input id="f-wallet" type="text" maxlength="100" placeholder="0x…" />
+        <p class="hint">Obrigatória para que o pagamento possa ser enviado.</p>
+      </div>
+      <div class="full">
+        <label for="f-description">Descrição</label>
+        <textarea id="f-description" maxlength="2000" required></textarea>
+        <p class="hint">Explique o que está sendo pago e por quê.</p>
+      </div>
+      <div class="full" id="codeRow" hidden>
+        <label for="f-code">Código de acesso</label>
+        <input id="f-code" type="password" autocomplete="off" />
+      </div>
+      <div class="form-actions">
+        <button type="submit" class="primary">Enviar pedido</button>
+        <span class="form-result" id="formResult" role="status"></span>
+      </div>
+    </form>
+  </section>
+
+  <section>
+    <h2>Meus pedidos</h2>
+    <div id="myRequests"></div>
+  </section>
+
+</div>
+
+<script>
+const STORE_KEY = 'tameion_my_requests';
+const MAX_TRACKED = 20;
+const EXPLORER_TX_URL = 'https://explorer.testnet.arc.io/tx/';
+
+const CATEGORY_LABEL = {
+  contractor_milestone: 'Milestone de contratado',
+  supply_purchase: 'Compra de insumo',
+  operational_expense: 'Despesa operacional',
+  other: 'Outro',
+};
+const STATE_LABEL = {
+  in_review: 'Em análise',
+  approved: 'Aprovado · pagamento em processamento',
+  paid: 'Pago',
+  declined: 'Recusado',
+};
+
+function escapeHtml(v) {
+  return String(v).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+const fmtAmount = v => Number(v).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' USDC';
+const fmtWhen = iso => new Date(iso).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
+
+// Ids of the requests sent from this browser. The server has no notion of
+// "my requests": possessing an id is what allows reading its status.
+function tracked() {
+  try { return JSON.parse(localStorage.getItem(STORE_KEY)) || []; } catch (_) { return []; }
+}
+function track(id) {
+  const ids = [id, ...tracked().filter(x => x !== id)].slice(0, MAX_TRACKED);
+  try { localStorage.setItem(STORE_KEY, JSON.stringify(ids)); } catch (_) { /* private mode: list just won't persist */ }
+}
+
+async function fetchStatus(id) {
+  const res = await fetch('/api/requester/requests/' + encodeURIComponent(id));
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error('status ' + res.status);
+  return res.json();
+}
+
+function rowHtml(s) {
+  const approvedDiffers = s.amount_approved != null && s.amount_approved !== s.amount_requested;
+  const tx = s.tx_hash
+    ? ` · <a class="tx-link" href="${EXPLORER_TX_URL}${encodeURIComponent(s.tx_hash)}" target="_blank" rel="noopener">${escapeHtml(s.tx_hash.slice(0, 10))}…</a>`
+    : '';
+  return `
+    <div class="req-row">
+      <div>
+        <p class="req-title">${escapeHtml(CATEGORY_LABEL[s.category] || s.category)}</p>
+        <p class="req-meta">${escapeHtml(s.request_id)} · atualizado ${fmtWhen(s.updated_at)}${tx}</p>
+        <span class="state ${escapeHtml(s.status)}">${escapeHtml(STATE_LABEL[s.status] || s.status)}</span>
+      </div>
+      <p class="req-amount">${fmtAmount(s.amount_requested)}
+        ${approvedDiffers ? `<small>aprovado: ${fmtAmount(s.amount_approved)}</small>` : ''}</p>
+    </div>`;
+}
+
+async function renderMine() {
+  const el = document.getElementById('myRequests');
+  const ids = tracked();
+  if (ids.length === 0) {
+    el.innerHTML = '<p class="empty">Você ainda não enviou nenhum pedido neste navegador.</p>';
+    return;
+  }
+  const results = await Promise.all(ids.map(id => fetchStatus(id).catch(() => undefined)));
+  el.innerHTML = results.map((s, i) => {
+    if (s === undefined) return `<div class="req-row"><p class="req-meta">${escapeHtml(ids[i])} · não foi possível atualizar agora.</p></div>`;
+    if (s === null) return `<div class="req-row"><p class="req-meta">${escapeHtml(ids[i])} · pedido não encontrado.</p></div>`;
+    return rowHtml(s);
+  }).join('');
+}
+
+async function loadInfo() {
+  try {
+    const info = await (await fetch('/api/requester/info')).json();
+    document.getElementById('codeRow').hidden = !info.access_code_required;
+  } catch (_) { /* the form still works; a missing code will be reported on submit */ }
+}
+
+document.getElementById('newRequestForm').addEventListener('submit', async (ev) => {
+  ev.preventDefault();
+  const resultEl = document.getElementById('formResult');
+  const submitBtn = ev.target.querySelector('button[type="submit"]');
+  submitBtn.disabled = true;
+  resultEl.className = 'form-result';
+  resultEl.textContent = 'Enviando…';
+
+  const payload = {
+    category: document.getElementById('f-category').value,
+    amount_usdc: parseFloat(document.getElementById('f-amount').value),
+    requester: document.getElementById('f-requester').value.trim(),
+    description: document.getElementById('f-description').value.trim(),
+    counterparty_wallet: document.getElementById('f-wallet').value.trim() || null,
+  };
+  const headers = { 'Content-Type': 'application/json' };
+  const code = document.getElementById('f-code').value;
+  if (code) headers['X-Access-Code'] = code;
+
+  try {
+    const res = await fetch('/api/requester/requests', { method: 'POST', headers, body: JSON.stringify(payload) });
+    if (res.status === 401) throw new Error('Código de acesso inválido.');
+    if (res.status === 422) throw new Error('Confira os campos: algum valor não é válido.');
+    if (!res.ok) throw new Error('Não foi possível enviar agora. Tente novamente em instantes.');
+    const status = await res.json();
+    track(status.request_id);
+    resultEl.textContent = 'Pedido recebido. Acompanhe abaixo.';
+    ev.target.reset();
+    await renderMine();
+  } catch (err) {
+    resultEl.className = 'form-result error';
+    resultEl.textContent = err.message;
+  } finally {
+    submitBtn.disabled = false;
+  }
+});
+
+loadInfo();
+renderMine();
+setInterval(renderMine, 10000);
+</script>
+</body>
+</html>

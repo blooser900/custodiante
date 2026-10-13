@@ -136,7 +136,7 @@
 <div class="page">
   <header class="top">
     <h1>Regras do agente</h1>
-    <a class="back" href="/">&larr; Voltar ao livro</a>
+    <a class="back" href="/manager">&larr; Voltar ao livro</a>
   </header>
 
   <div id="loadError" class="save-status error"></div>
@@ -170,16 +170,17 @@
   </div>
 </div>
 
+<script src="/ui/manager-auth.js"></script>
 <script>
 let config = null;
 
 const THRESHOLD_LABELS = {
-  trust_min_auto_approve: ['Confiança mínima para aprovação automática', 'Acima deste valor (e com confiança suficiente do modelo), o pagamento é aprovado sem intervenção humana.'],
-  trust_min_confidence_for_auto_approve: ['Confiança do modelo exigida para aprovar sozinho', 'O modelo também precisa estar seguro da própria avaliação de confiança, não só dar uma nota alta.'],
-  trust_min_to_consider: ['Confiança mínima para sequer considerar', 'Abaixo deste valor, a solicitação é escalada imediatamente, sem checar mais nada.'],
-  importance_high: ['Importância considerada alta', 'Acima deste valor, habilita aprovação reduzida mesmo com confiança apenas média.'],
+  trust_min_auto_approve: ['Confiabilidade mínima para aprovação automática', 'Acima deste valor o pagamento é aprovado sem intervenção humana.'],
+  trust_min_to_consider: ['Confiabilidade mínima para sequer considerar', 'Abaixo deste valor, a solicitação é escalada imediatamente, sem checar mais nada.'],
+  importance_high: ['Importância considerada alta', 'Acima deste valor, habilita aprovação reduzida mesmo com confiabilidade apenas média.'],
   urgency_high: ['Urgência considerada alta', 'Mesmo efeito que importância alta: habilita aprovação reduzida.'],
   reduced_amount_fraction: ['Fração liberada em aprovação reduzida', 'Em uma aprovação reduzida, libera esta fração do limite da categoria (ex: 0.5 = metade).'],
+  fraud_veto_at: ['Probabilidade de fraude que veta a aprovação automática', 'A partir deste valor, nenhuma aprovação automática acontece: a solicitação vai para um humano, qualquer que seja a confiabilidade.'],
 };
 
 function escapeHtml(s) {
@@ -188,11 +189,22 @@ function escapeHtml(s) {
 
 function renderLimits() {
   const el = document.getElementById('limitsList');
-  el.innerHTML = Object.entries(config.category_limits).map(([category, amount]) => `
+  el.innerHTML = Object.entries(config.category_limits).map(([category, limit]) => {
+    // `limit` is an object now: the ceiling plus whether a part payment is a
+    // valid outcome for this category. Half a supply purchase is still supply;
+    // half an agreed contract price is not half a delivery, so the category
+    // decides and the policy escalates instead of paying a fraction.
+    const reduced = limit.allow_reduced !== false;
+    return `
     <div class="limit-row" data-category="${escapeHtml(category)}">
       <span class="row-label">${escapeHtml(category)}</span>
-      <input type="number" step="0.01" value="${amount}" data-field="limit" data-category="${escapeHtml(category)}" />
-    </div>`).join('');
+      <input type="number" step="0.01" value="${limit.max_usdc}" data-field="limit" data-category="${escapeHtml(category)}" />
+      <label class="row-check" title="Desmarque para categorias em que pagar so uma parte nao faz sentido: a solicitacao vai para um humano em vez de ser aprovada com valor reduzido.">
+        <input type="checkbox" ${reduced ? 'checked' : ''} data-field="allow-reduced" data-category="${escapeHtml(category)}" />
+        aceita valor reduzido
+      </label>
+    </div>`;
+  }).join('');
 }
 
 function renderThresholds() {
@@ -235,18 +247,31 @@ function renderAll() {
 
 async function loadConfig() {
   try {
-    const res = await fetch('/api/config');
+    const res = await ManagerAuth.fetch('/api/config');
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     config = await res.json();
     renderAll();
   } catch (err) {
+    if (err.code === 'AUTH') return;  // the sign-in wall is showing
     document.getElementById('loadError').textContent = 'Não foi possível carregar as regras: ' + err.message;
   }
 }
 
 function readFormIntoConfig() {
   document.querySelectorAll('input[data-field="limit"]').forEach(input => {
-    config.category_limits[input.dataset.category] = parseFloat(input.value) || 0;
+    const category = input.dataset.category;
+    const existing = config.category_limits[category] || {};
+    config.category_limits[category] = {
+      ...existing,
+      max_usdc: parseFloat(input.value) || 0,
+    };
+  });
+  // The checkbox is a separate field of the same object, read on its own so a
+  // missing element leaves the stored value alone instead of inventing false.
+  document.querySelectorAll('input[data-field="allow-reduced"]').forEach(input => {
+    const category = input.dataset.category;
+    const existing = config.category_limits[category] || {};
+    config.category_limits[category] = { ...existing, allow_reduced: input.checked };
   });
   document.querySelectorAll('input[data-field="threshold"]').forEach(input => {
     config.thresholds[input.dataset.name] = parseFloat(input.value) || 0;
@@ -263,7 +288,7 @@ document.getElementById('addCategoryBtn').addEventListener('click', () => {
   const amount = parseFloat(amountInput.value);
   if (!name || isNaN(amount)) return;
   readFormIntoConfig();
-  config.category_limits[name] = amount;
+  config.category_limits[name] = { max_usdc: amount, allow_reduced: true };
   nameInput.value = '';
   amountInput.value = '';
   renderLimits();
@@ -292,7 +317,7 @@ document.getElementById('saveBtn').addEventListener('click', async () => {
   statusEl.textContent = 'Salvando…';
 
   try {
-    const res = await fetch('/api/config', {
+    const res = await ManagerAuth.fetch('/api/config', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(config),
@@ -313,7 +338,7 @@ document.getElementById('saveBtn').addEventListener('click', async () => {
   }
 });
 
-loadConfig();
+if (ManagerAuth.ensure()) loadConfig();
 </script>
 </body>
 </html>

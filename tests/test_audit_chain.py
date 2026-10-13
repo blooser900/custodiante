@@ -185,3 +185,36 @@ def test_log_path_is_resolved_at_call_time_not_import_time(tmp_path, monkeypatch
     assert target.exists()
     assert [e.request.request_id for e in read_all_entries()] == ["late-1"]
     assert verify_chain().ok
+
+
+# --------------------------------------------------------------------------
+# Evidence in the chained log, and logs that predate it
+# --------------------------------------------------------------------------
+
+
+def test_extra_answers_and_evidence_round_trip_through_the_chained_log(tmp_path):
+    from src.decision_engine.mock_engine import MockDecisionEngine
+
+    path = str(tmp_path / "audit.jsonl")
+    request = make_entry("x").request
+    entry = make_entry("x").model_copy(update={"scores": MockDecisionEngine().score(request)})
+    append_entry(entry, path)
+
+    back = read_all_entries(path)[0]
+    assert back.scores.extra["fraud_indicators"].noul == entry.scores.extra["fraud_indicators"].noul
+    assert back.scores.evidence.state["description"] == "d"
+    assert verify_chain(path).ok
+
+
+def test_entries_written_before_these_fields_existed_still_load_and_verify(tmp_path):
+    path = str(tmp_path / "old.jsonl")
+    old = make_entry("old").model_dump(mode="json")
+    for field in ("prev_hash", "entry_hash"):
+        old.pop(field)
+    old["scores"].pop("extra"), old["scores"].pop("evidence")  # as written by an older version
+    write_lines(path, [json.dumps(old)])
+    append_entry(make_entry("new"), path)
+
+    entries = read_all_entries(path)
+    assert entries[0].scores.extra == {} and entries[0].scores.evidence is None
+    assert verify_chain(path).ok

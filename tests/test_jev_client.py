@@ -16,6 +16,7 @@ from src.config import RulesConfig, ScoringCriteria, Thresholds
 from src.decision_engine.criteria import normalize_score
 from src.decision_engine.jev_client import JevDecisionEngine
 from src.requests.schema import PaymentRequest, RequestCategory
+from tests.rules_fixtures import category_limits, thresholds
 
 TRUST_CRITERIA = ["bad", "ok", "good"]
 URGENCY_CRITERIA = ["low", "medium", "high"]
@@ -24,18 +25,13 @@ IMPORTANCE_CRITERIA = ["minor", "moderate", "major"]
 
 def fake_rules_config() -> RulesConfig:
     return RulesConfig(
-        category_limits={"other": 200.0},
-        thresholds=Thresholds(
-            trust_min_auto_approve=0.75,
-            trust_min_confidence_for_auto_approve=0.7,
-            trust_min_to_consider=0.4,
-            importance_high=0.7,
-            urgency_high=0.7,
-            reduced_amount_fraction=0.5,
-        ),
+        category_limits=category_limits(),
+        thresholds=thresholds(),
         criteria=ScoringCriteria(
             trust=TRUST_CRITERIA, urgency=URGENCY_CRITERIA, importance=IMPORTANCE_CRITERIA
         ),
+        # These tests are about the three core questions; extras have their own tests.
+        assessment_questions={},
     )
 
 
@@ -87,7 +83,7 @@ def test_normalize_maps_raw_score_to_zero_one_range():
     assert normalize_score(2.0, 3) == 1.0
 
 
-@patch("src.decision_engine.jev_client.load_config")
+@patch("src.decision_engine.system_one.load_config")
 @patch("src.decision_engine._http.httpx.post")
 def test_score_normalizes_and_maps_confidence(mock_post, mock_load_config):
     mock_load_config.return_value = fake_rules_config()
@@ -107,7 +103,7 @@ def test_score_normalizes_and_maps_confidence(mock_post, mock_load_config):
     assert scores.trust.confidence == 0.85
 
 
-@patch("src.decision_engine.jev_client.load_config")
+@patch("src.decision_engine.system_one.load_config")
 @patch("src.decision_engine._http.httpx.post")
 def test_score_sends_expected_request_shape(mock_post, mock_load_config):
     mock_load_config.return_value = fake_rules_config()
@@ -129,7 +125,7 @@ def test_score_sends_expected_request_shape(mock_post, mock_load_config):
     assert kwargs["headers"]["Authorization"] == "Bearer fake-key"
 
 
-@patch("src.decision_engine.jev_client.load_config")
+@patch("src.decision_engine.system_one.load_config")
 @patch("src.decision_engine._http.httpx.post")
 def test_score_wraps_connection_error_with_clear_message(mock_post, mock_load_config):
     mock_load_config.return_value = fake_rules_config()

@@ -8,7 +8,7 @@ from demo.inspect_scores import build_payload
 from src.requests.schema import PaymentRequest
 
 
-def test_inspect_scores_builds_a_payload_with_all_three_questions():
+def test_inspect_scores_builds_the_same_payload_the_engine_sends():
     request = PaymentRequest(
         request_id="x",
         category="other",
@@ -17,7 +17,10 @@ def test_inspect_scores_builds_a_payload_with_all_three_questions():
         description="d",
     )
     payload = build_payload(request)
-    assert set(payload["questions"]) == {"trust", "urgency", "importance"}
+    from src.config import load_config
+
+    expected = {"trust", "urgency", "importance", *load_config().assessment_questions}
+    assert set(payload["questions"]) == expected  # core questions AND the configured extras
     assert payload["state"]["amount_usdc"] == 10.0
 
 

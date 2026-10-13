@@ -15,6 +15,22 @@ from src.policy.rules import PolicyDecision
 from src.requests.schema import PaymentRequest
 
 
+class FailedAttempt(BaseModel):
+    """An escrow action that was tried and failed.
+
+    Recorded on a copy of the milestone's current entry, so the escrow's
+    state is unchanged (funds are exactly where they were) while the audit
+    log still shows who tried what, when, and why it did not go through.
+    """
+
+    action: str  # "fund" | "deliver" | "release" | "reject"
+    error: str
+    # The failed transaction, when one was actually sent. A transaction that
+    # reverts on-chain still has a hash and still cost gas.
+    transaction_id: str | None = None
+    tx_hash: str | None = None
+
+
 class AuditEntry(BaseModel):
     timestamp: str
     request: PaymentRequest
@@ -52,6 +68,21 @@ class AuditEntry(BaseModel):
     # released | rejected. Both None for requests that were paid directly.
     escrow_job_id: int | None = None
     escrow_status: str | None = None
+    # Crash-recovery marker (see src/pipeline.py:_pending_entry). Set on the
+    # row written BEFORE any money moves, describing what we are about to do,
+    # and cleared by the row that records the outcome. While it is present the
+    # payment is unaccounted for: a retry must reconcile, not re-pay.
+    payment_attempt: str | None = None
+    payment_amount_usdc: float | None = None
+    # Which try at paying this request the row belongs to (None = the first, and
+    # on rows written before this field existed). It selects the Circle
+    # idempotency key (`payment_idempotency_key`): a retry after a transfer that
+    # definitely failed bumps it, a resend of one whose fate is unknown does not.
+    # Optional on purpose: the hash chain is computed over the raw line, so older
+    # rows without it verify exactly as they were written.
+    attempt_number: int | None = None
+    # The most recent failed escrow action, cleared by the next success.
+    failed_attempt: FailedAttempt | None = None
     # Hash chain (set by src/audit/store.py at write time, never by callers):
     # `entry_hash` covers this entry's content plus `prev_hash`, and
     # `prev_hash` is the previous entry's `entry_hash`. Editing or removing
@@ -71,12 +102,18 @@ def build_entry(
     engine_name: str | None = None,
     escrow_job_id: int | None = None,
     escrow_status: str | None = None,
+    payment_attempt: str | None = None,
+    payment_amount_usdc: float | None = None,
 ) -> AuditEntry:
     """Assemble a single audit entry from one full decision cycle.
 
     `payment_result` is whatever ArcPaymentClient.send_payment returned
     (transaction_id, tx_hash, etc.), if a payment was attempted and
     succeeded. Pass None if no payment was executed.
+
+    `payment_attempt` marks a row written before the money moved (see
+    src/pipeline.py:_pending_entry); it must be cleared by the row that
+    records the outcome.
     """
     return AuditEntry(
         timestamp=datetime.now(timezone.utc).isoformat(),
@@ -93,4 +130,6 @@ def build_entry(
         payment_detail=payment_detail,
         escrow_job_id=escrow_job_id,
         escrow_status=escrow_status,
+        payment_attempt=payment_attempt,
+        payment_amount_usdc=payment_amount_usdc,
     )

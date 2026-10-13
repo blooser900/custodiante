@@ -12,27 +12,25 @@ from unittest.mock import MagicMock, patch
 import pytest
 from fastapi.testclient import TestClient
 
+from tests.conftest import MANAGER_AUTH
 from src.api import app
 from src.audit.logger import AuditEntry
 from src.config import RulesConfig, ScoringCriteria, Thresholds
 from src.decision_engine.engine import DecisionScores, ScoreResult
 from src.requests.schema import PaymentRequest, RequestCategory
+from tests.rules_fixtures import category_limits, thresholds
 
-client = TestClient(app)
+
+client = TestClient(app, headers=MANAGER_AUTH)
 
 
 def fake_rules_config() -> RulesConfig:
     return RulesConfig(
-        category_limits={"operational_expense": 500.0, "other": 200.0},
-        thresholds=Thresholds(
-            trust_min_auto_approve=0.75,
-            trust_min_confidence_for_auto_approve=0.7,
-            trust_min_to_consider=0.4,
-            importance_high=0.7,
-            urgency_high=0.7,
-            reduced_amount_fraction=0.5,
-        ),
+        category_limits=category_limits(operational_expense=500.0, other=200.0),
+        thresholds=thresholds(),
         criteria=ScoringCriteria(trust=["a", "b"], urgency=["a", "b"], importance=["a", "b"]),
+        # Payment-mechanics tests: an unseen payee would be escalated before the code under test runs.
+        require_known_payee=False,
     )
 
 
@@ -55,6 +53,7 @@ def make_entry(
     reviewer: str | None = None,
     reduced_amount: float | None = None,
     counterparty_wallet: str | None = None,
+    payment_attempt: str | None = None,
 ) -> AuditEntry:
     request = PaymentRequest(
         request_id=request_id,
@@ -79,6 +78,7 @@ def make_entry(
         payment_executed=payment_executed,
         human_review=human_review,
         reviewer=reviewer,
+        payment_attempt=payment_attempt,
     )
 
 
@@ -161,7 +161,13 @@ def test_submit_request_runs_pipeline_and_returns_decision(mock_factory, mock_ap
     data = response.json()
     assert data["decision"] == "approve"
     assert data["payment_executed"] is False  # no counterparty_wallet in payload
-    mock_append.assert_called_once()
+    # Approved, so the intent is recorded first and the outcome second.
+    assert mock_append.call_count == 2
+    pending, confirmed = (call[0][0] for call in mock_append.call_args_list)
+    assert pending.payment_attempt is not None
+    assert pending.payment_amount_usdc == 50.0
+    assert confirmed.payment_attempt is None
+    assert confirmed.payment_status == "skipped"
 
 
 @patch("src.pipeline.append_entry")
@@ -251,7 +257,46 @@ def test_decide_escalation_approve_executes_payment(mock_read, mock_arc_cls, moc
     assert data["tx_hash"] == "0xdef"
     mock_arc_cls.return_value.send_payment.assert_called_once()
     _, kwargs = mock_arc_cls.return_value.send_payment.call_args
-    assert kwargs["amount_usdc"] == 5000.0  # full original amount, not a reduced one
+    # The human is overriding the policy's reduction, so the full requested
+    # amount is paid -- and the row records the figure actually authorized.
+    assert kwargs["amount_usdc"] == 5000.0
+    assert data["payment_amount_usdc"] == 5000.0
+
+
+@patch.dict(os.environ, {"CIRCLE_API_KEY": "fake-key"})
+def test_decide_escalation_refuses_when_a_payment_is_already_in_flight():
+    """The ratchet this path was missing (SEV-03).
+
+    A row whose payment is recorded but unconfirmed has `human_review=None`
+    (that field is only set on the row carrying the outcome), so the old
+    check let a second approval through and paid a second time.
+    """
+    in_flight = [
+        make_entry(
+            "r1",
+            "escalate",
+            amount=5000.0,
+            counterparty_wallet="0x" + "c" * 40,
+            payment_attempt="transfer 5000.0 USDC to 0x" + "c" * 40,
+        )
+    ]
+
+    # Both reads must see the same row: the route's pre-check reads through
+    # src.api, and apply_human_override re-reads through src.pipeline.
+    with (
+        patch("src.api.read_latest_per_request", return_value=in_flight),
+        patch("src.pipeline.read_latest_per_request", return_value=in_flight),
+        patch("src.pipeline.append_entry") as mock_append,
+        patch("src.pipeline.ArcPaymentClient") as mock_arc_cls,
+    ):
+        response = client.post(
+            "/api/escalations/r1/decision", json={"action": "approve", "reviewer": "joão"}
+        )
+
+    assert response.status_code == 409
+    assert "in flight" in response.json()["detail"]
+    mock_arc_cls.return_value.send_payment.assert_not_called()
+    mock_append.assert_not_called()
 
 
 @patch("src.api.read_latest_per_request")
@@ -303,22 +348,41 @@ def test_get_config_returns_current_rules(mock_load):
 
     assert response.status_code == 200
     data = response.json()
-    assert data["category_limits"]["operational_expense"] == 500.0
+    assert data["category_limits"]["operational_expense"]["max_usdc"] == 500.0
     assert data["criteria"]["trust"] == ["a", "b"]
 
 
 @patch("src.api.save_config")
 def test_put_config_persists_valid_update(mock_save):
     payload = fake_rules_config().model_dump()
-    payload["category_limits"]["operational_expense"] = 999.0
+    payload["category_limits"]["operational_expense"]["max_usdc"] = 999.0
 
     response = client.put("/api/config", json=payload)
 
     assert response.status_code == 200
-    assert response.json()["category_limits"]["operational_expense"] == 999.0
+    assert response.json()["category_limits"]["operational_expense"]["max_usdc"] == 999.0
     mock_save.assert_called_once()
     saved_config = mock_save.call_args[0][0]
-    assert saved_config.category_limits["operational_expense"] == 999.0
+    assert saved_config.category_limits["operational_expense"].max_usdc == 999.0
+
+
+def test_put_config_accepts_a_bare_float_without_losing_the_reduced_rule():
+    """A client may still send `{"operational_expense": 999.0}`.
+
+    That is the pre-`allow_reduced` shape, and the loader accepts it, so the
+    API accepts it too rather than breaking existing callers. What it must NOT
+    do is silently re-enable part payments for a category that forbids them:
+    the bare float only sets the ceiling.
+    """
+    payload = fake_rules_config().model_dump()
+    payload["category_limits"]["contractor_milestone"] = 999.0
+
+    response = client.put("/api/config", json=payload)
+
+    assert response.status_code == 200
+    saved = response.json()["category_limits"]["contractor_milestone"]
+    assert saved["max_usdc"] == 999.0
+    assert saved["allow_reduced"] is False  # the rule survived the bare number
 
 
 def test_put_config_rejects_invalid_threshold():
@@ -400,3 +464,141 @@ def test_audit_verify_endpoint_reports_chain_state(mock_verify):
 
     assert data["ok"] is False
     assert data["bad_line"] == 2
+
+
+# --------------------------------------------------------------------------
+# POST /api/requests/{id}/reconcile and /retry-payment (review R2-03)
+# --------------------------------------------------------------------------
+
+
+def _recovery_entry(**kwargs):
+    return make_entry("r1", "approve", amount=50.0, **kwargs)
+
+
+@patch("src.api.reconcile_payment")
+def test_reconcile_returns_what_circle_said_and_the_entry(mock_reconcile):
+    from src.pipeline import ReconcileResult
+
+    mock_reconcile.return_value = ReconcileResult(_recovery_entry(), True, "COMPLETE", "Recorded: the transfer is COMPLETE.")
+
+    response = client.post("/api/requests/r1/reconcile", json={"reviewer": "ana"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["changed"] is True and body["observed"] == "COMPLETE"
+    assert body["entry"]["request"]["request_id"] == "r1"
+    mock_reconcile.assert_called_once_with("r1", reviewer="ana")
+
+
+def test_reconcile_works_without_a_body():
+    from src.pipeline import ReconcileResult
+
+    with patch("src.api.reconcile_payment") as mock_reconcile:
+        mock_reconcile.return_value = ReconcileResult(_recovery_entry(), False, "not_found", "nothing recorded")
+        assert client.post("/api/requests/r1/reconcile").status_code == 200
+        mock_reconcile.assert_called_once_with("r1", reviewer="operator")
+
+
+@pytest.mark.parametrize(("raised", "status"), [
+    ("PaymentNotFoundError", 404),
+    ("PaymentStateError", 409),
+    ("PaymentLookupError", 502),
+])
+def test_reconcile_maps_each_failure_to_its_status(raised, status):
+    import src.pipeline as pipeline
+
+    with patch("src.api.reconcile_payment", side_effect=getattr(pipeline, raised)("why")):
+        response = client.post("/api/requests/r1/reconcile", json={})
+    assert response.status_code == status and response.json()["detail"] == "why"
+
+
+@patch("src.api.retry_payment")
+def test_retry_payment_passes_the_reviewer_and_the_resend_flag(mock_retry):
+    mock_retry.return_value = _recovery_entry(payment_executed=True)
+
+    response = client.post("/api/requests/r1/retry-payment", json={"reviewer": "ana", "resend_unconfirmed": True})
+
+    assert response.status_code == 200 and response.json()["request"]["request_id"] == "r1"
+    mock_retry.assert_called_once_with("r1", reviewer="ana", resend_unconfirmed=True)
+
+
+@patch("src.api.retry_payment")
+def test_retry_payment_defaults_to_never_resending_an_unconfirmed_payment(mock_retry):
+    mock_retry.return_value = _recovery_entry()
+    client.post("/api/requests/r1/retry-payment", json={})
+    mock_retry.assert_called_once_with("r1", reviewer="operator", resend_unconfirmed=False)
+
+
+@pytest.mark.parametrize(("raised", "status"), [
+    ("PaymentNotFoundError", 404),
+    ("PaymentStateError", 409),
+    ("PaymentInFlightError", 409),
+    ("PaymentLookupError", 502),
+])
+def test_retry_payment_maps_each_failure_to_its_status(raised, status):
+    import src.pipeline as pipeline
+
+    with patch("src.api.retry_payment", side_effect=getattr(pipeline, raised)("why")):
+        response = client.post("/api/requests/r1/retry-payment", json={})
+    assert response.status_code == status
+
+
+def test_the_recovery_routes_bound_the_reviewer_text():
+    assert client.post("/api/requests/r1/reconcile", json={"reviewer": "x" * 101}).status_code == 422
+    assert client.post("/api/requests/r1/retry-payment", json={"reviewer": "x" * 101}).status_code == 422
+
+
+# --------------------------------------------------------------------------
+# Amounts are checked at the door and totals add up exactly (review R2-04)
+# --------------------------------------------------------------------------
+
+
+REQUESTER_BODY = {
+    "category": "operational_expense",
+    "amount_usdc": 40,
+    "requester": "Ana",
+    "description": "Material de escritório.",
+}
+
+
+@pytest.mark.parametrize("amount", [1.0000001, 1e-7, 0.1 + 0.2])
+def test_the_requester_route_refuses_an_amount_finer_than_usdc(amount):
+    from src.api import app as api_app
+
+    with patch("src.api.run_pipeline") as mock_run:
+        response = TestClient(api_app).post("/api/requester/requests", json={**REQUESTER_BODY, "amount_usdc": amount})
+
+    assert response.status_code == 422
+    assert "decimal places" in response.text
+    mock_run.assert_not_called()
+
+
+def test_the_requester_route_still_accepts_a_normal_amount():
+    from src.api import app as api_app
+
+    with patch("src.api.run_pipeline", return_value=make_entry("r1", "escalate")) as mock_run:
+        response = TestClient(api_app).post("/api/requester/requests", json={**REQUESTER_BODY, "amount_usdc": 40.5})
+
+    assert response.status_code == 200
+    mock_run.assert_called_once()
+
+
+def test_the_manager_route_turns_an_unpayable_amount_into_a_422():
+    from src.money import InvalidAmountError
+
+    body = {"request_id": "m1", "category": "operational_expense", "amount_usdc": 5,
+            "requester": "ana", "description": "x"}
+    with patch("src.api.run_pipeline", side_effect=InvalidAmountError("1.0000001 USDC has more than 6 decimal places.")):
+        response = client.post("/api/requests", json=body)
+
+    assert response.status_code == 422
+    assert "decimal places" in response.json()["detail"]
+
+
+@patch("src.api.read_latest_per_request")
+def test_the_paid_total_is_the_sum_of_what_was_typed_rounded_the_ordinary_way(mock_read):
+    """In floats round(2.675, 2) is 2.67 (2.675 is really 2.67499999...); summed as
+    decimals it is 2.68. The dashboard shows what was typed, not its binary shadow."""
+    mock_read.return_value = [make_entry("r1", "approve", amount=2.675, payment_executed=True)]
+    assert round(2.675, 2) == 2.67
+    assert client.get("/api/stats").json()["paid_total_usdc"] == 2.68
