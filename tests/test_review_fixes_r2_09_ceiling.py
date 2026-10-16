@@ -7,9 +7,9 @@ the limit" stops being a control when the limit is above the funds.
 
 Ceiling = the wallet's USDC balance (`get_balance()`, the function ALT-11 found
 unused), with a floor of 100,000 USDC so a well-funded wallet does not turn a
-policy decision into a mirror of its balance. The user's rule: "balance total da
-carteira, ou algo como 10**5 quando get_balance() retornar valores maiores do que
-10**5".
+policy decision into a mirror of its balance. The user's rule: "the wallet's
+total balance, or something like 10**5 when get_balance() returns values larger
+than 10**5".
 
 What is NOT asserted here: that an unreadable balance blocks a save. It must
 not. Reading a balance needs credentials and the network, and a rules screen that

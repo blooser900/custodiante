@@ -19,8 +19,8 @@ was written and then never called (ALT-11). The balance is the honest answer to
     category ceiling of 9,000 is authority the treasury cannot honour;
   * at the top it stops at `MAX_LIMIT_USDC` (100,000), so a very well-funded
     wallet does not turn a policy decision into a mirror of its balance. This is
-    the author's rule: "balance total da carteira, ou algo como 10**5 quando
-    get_balance() retornar valores maiores do que 10**5";
+    the author's rule: "the wallet's total balance, or something like 10**5 when
+    get_balance() returns values larger than 10**5";
   * at the bottom it stops at `MIN_FUNDED_USDC` (1,000), so a wallet that has
     not been funded yet can still have its rules configured before the first
     deposit. Without that floor, a zero balance would permit no limit at all.
@@ -93,8 +93,8 @@ def ceiling_for(balance_usdc: float) -> float:
         not been funded yet can still have sane rules configured before its
         first deposit.
 
-    The user's rule: "balance total da carteira, ou algo como 10**5 quando
-    get_balance() retornar valores maiores do que 10**5".
+    The user's rule: "the wallet's total balance, or something like 10**5 when
+    get_balance() returns values larger than 10**5".
     """
     return min(max(balance_usdc, MIN_FUNDED_USDC), MAX_LIMIT_USDC)
 

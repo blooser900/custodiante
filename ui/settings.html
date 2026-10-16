@@ -1,9 +1,9 @@
 <!doctype html>
-<html lang="pt-BR">
+<html lang="en">
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Tameion · Regras</title>
+<title>Tameion · Rules</title>
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
@@ -135,37 +135,37 @@
 <body>
 <div class="page">
   <header class="top">
-    <h1>Regras do agente</h1>
-    <a class="back" href="/manager">&larr; Voltar ao livro</a>
+    <h1>Agent rules</h1>
+    <a class="back" href="/manager">&larr; Back to the ledger</a>
   </header>
 
   <div id="loadError" class="save-status error"></div>
 
   <section>
-    <h2>Limites por categoria</h2>
-    <p class="section-help">Valor máximo, em USDC, que o agente pode aprovar sozinho para cada categoria. Acima disso, a solicitação sempre é escalada para revisão humana, não importa o quanto o modelo confie nela.</p>
+    <h2>Category limits</h2>
+    <p class="section-help">The maximum amount, in USDC, that the agent may approve on its own for each category. Above that, the request is always escalated for human review, no matter how confident the model is.</p>
     <div id="limitsList"></div>
     <div class="new-category">
-      <input type="text" id="newCategoryName" placeholder="nova categoria (ex: travel_reimbursement)" />
-      <input type="number" id="newCategoryAmount" placeholder="limite USDC" step="0.01" />
-      <button type="button" id="addCategoryBtn">+ Adicionar</button>
+      <input type="text" id="newCategoryName" placeholder="new category (e.g. travel_reimbursement)" />
+      <input type="number" id="newCategoryAmount" placeholder="limit USDC" step="0.01" />
+      <button type="button" id="addCategoryBtn">+ Add</button>
     </div>
   </section>
 
   <section>
-    <h2>Limites de decisão</h2>
-    <p class="section-help">Controlam quando o agente aprova sozinho, aprova com valor reduzido, ou escala para um humano.</p>
+    <h2>Decision thresholds</h2>
+    <p class="section-help">They control when the agent approves on its own, approves a reduced amount, or escalates to a human.</p>
     <div id="thresholdsList"></div>
   </section>
 
   <section>
-    <h2>Critérios de avaliação (Kev / Jev)</h2>
-    <p class="section-help">O texto de cada nível é o que o modelo de decisão lê para pontuar confiança, urgência e importância. Cada critério precisa de 2 a 10 níveis.</p>
+    <h2>Scoring criteria (Kev / Jev)</h2>
+    <p class="section-help">The text of each level is what the decision model reads when scoring trust, urgency and importance. Each criterion needs 2 to 10 levels.</p>
     <div id="rubricsList"></div>
   </section>
 
   <div class="save-bar">
-    <button type="button" class="save" id="saveBtn">Salvar alterações</button>
+    <button type="button" class="save" id="saveBtn">Save changes</button>
     <span class="save-status" id="saveStatus"></span>
   </div>
 </div>
@@ -178,12 +178,12 @@ let config = null;
 let problems = [];
 
 const THRESHOLD_LABELS = {
-  trust_min_auto_approve: ['Confiabilidade mínima para aprovação automática', 'Acima deste valor o pagamento é aprovado sem intervenção humana.'],
-  trust_min_to_consider: ['Confiabilidade mínima para sequer considerar', 'Abaixo deste valor, a solicitação é escalada imediatamente, sem checar mais nada.'],
-  importance_high: ['Importância considerada alta', 'Acima deste valor, habilita aprovação reduzida mesmo com confiabilidade apenas média.'],
-  urgency_high: ['Urgência considerada alta', 'Mesmo efeito que importância alta: habilita aprovação reduzida.'],
-  reduced_amount_fraction: ['Fração liberada em aprovação reduzida', 'Em uma aprovação reduzida, libera esta fração do limite da categoria (ex: 0.5 = metade).'],
-  fraud_veto_at: ['Probabilidade de fraude que veta a aprovação automática', 'A partir deste valor, nenhuma aprovação automática acontece: a solicitação vai para um humano, qualquer que seja a confiabilidade.'],
+  trust_min_auto_approve: ['Minimum trust to approve automatically', 'Above this value, the payment is approved without human intervention.'],
+  trust_min_to_consider: ['Minimum trust to consider at all', 'Below this value, the request is escalated immediately, without checking anything else.'],
+  importance_high: ['Importance considered high', 'Above this value, a reduced approval is allowed even when trust is only medium.'],
+  urgency_high: ['Urgency considered high', 'Same effect as high importance: it allows a reduced approval.'],
+  reduced_amount_fraction: ['Fraction released on a reduced approval', 'On a reduced approval, releases this fraction of the category limit (e.g. 0.5 = half).'],
+  fraud_veto_at: ['Fraud probability that vetoes automatic approval', 'From this value up, no automatic approval happens: the request goes to a human, whatever the trust score.'],
 };
 
 function escapeHtml(s) {
@@ -202,9 +202,9 @@ function renderLimits() {
     <div class="limit-row" data-category="${escapeHtml(category)}">
       <span class="row-label">${escapeHtml(category)}</span>
       <input type="number" step="0.01" min="0" required value="${limit.max_usdc}" data-field="limit" data-category="${escapeHtml(category)}" />
-      <label class="row-check" title="Desmarque para categorias em que pagar so uma parte nao faz sentido: a solicitacao vai para um humano em vez de ser aprovada com valor reduzido.">
+      <label class="row-check" title="Uncheck for categories where paying only part of the amount makes no sense: the request goes to a human instead of being approved for a reduced amount.">
         <input type="checkbox" ${reduced ? 'checked' : ''} data-field="allow-reduced" data-category="${escapeHtml(category)}" />
-        aceita valor reduzido
+        allows a reduced amount
       </label>
     </div>`;
   }).join('');
@@ -234,10 +234,10 @@ function renderRubrics() {
         <div class="level-row">
           <span class="level-index">[${i}]</span>
           <textarea data-field="level" data-question="${question}" data-index="${i}">${escapeHtml(text)}</textarea>
-          <button type="button" class="remove-level" data-action="remove-level" data-question="${question}" data-index="${i}" ${levels.length <= 2 ? 'disabled title="mínimo de 2 níveis"' : ''}>remover</button>
+          <button type="button" class="remove-level" data-action="remove-level" data-question="${question}" data-index="${i}" ${levels.length <= 2 ? 'disabled title="minimum of 2 levels"' : ''}>remove</button>
         </div>`).join('')}
       <div class="rubric-actions">
-        <button type="button" class="add-level" data-action="add-level" data-question="${question}" ${levels.length >= 10 ? 'disabled title="máximo de 10 níveis"' : ''}>+ Adicionar nível</button>
+        <button type="button" class="add-level" data-action="add-level" data-question="${question}" ${levels.length >= 10 ? 'disabled title="maximum of 10 levels"' : ''}>+ Add level</button>
       </div>
     </div>`).join('');
 }
@@ -256,13 +256,13 @@ async function loadConfig() {
     renderAll();
   } catch (err) {
     if (err.code === 'AUTH') return;  // the sign-in wall is showing
-    document.getElementById('loadError').textContent = 'Não foi possível carregar as regras: ' + err.message;
+    document.getElementById('loadError').textContent = 'Could not load the rules: ' + err.message;
   }
 }
 
 // Read one numeric field strictly. `parseFloat(value) || 0` used to turn an
 // EMPTY or unparseable field into 0, and 0 passes the server's own validators:
-// clearing the "minimum reliability to approve automatically" box silently
+// clearing the "minimum trust to approve automatically" box silently
 // saved 0, which is a policy that approves everything. There is no safe
 // default for a number the manager is responsible for, so a blank or invalid
 // field is reported and the save is refused instead of being guessed at.
@@ -273,11 +273,11 @@ function readNumberField(input, label, { min = 0, max = null } = {}) {
   const raw = String(input.value).trim();
   const value = Number(raw);
   if (raw === '' || !Number.isFinite(value)) {
-    problems.push(`${label}: informe um número.`);
+    problems.push(`${label}: enter a number.`);
     return null;
   }
   if (value < min || (max !== null && value > max)) {
-    problems.push(`${label}: ${value} está fora da faixa permitida (${min} a ${max === null ? '∞' : max}).`);
+    problems.push(`${label}: ${value} is outside the allowed range (${min} to ${max === null ? '∞' : max}).`);
     return null;
   }
   return value;
@@ -286,7 +286,7 @@ function readNumberField(input, label, { min = 0, max = null } = {}) {
 function reportProblems() {
   const statusEl = document.getElementById('saveStatus');
   statusEl.className = 'save-status error';
-  statusEl.textContent = 'Nada foi salvo. ' + problems.join(' ');
+  statusEl.textContent = 'Nothing was saved. ' + problems.join(' ');
   problems = [];
 }
 
@@ -295,7 +295,7 @@ function readFormIntoConfig() {
   document.querySelectorAll('input[data-field="limit"]').forEach(input => {
     const category = input.dataset.category;
     const existing = config.category_limits[category] || {};
-    const value = readNumberField(input, `limite de ${category}`, { min: 0.000001 });
+    const value = readNumberField(input, `limit for ${category}`, { min: 0.000001 });
     if (value !== null) config.category_limits[category] = { ...existing, max_usdc: value };
   });
   // The checkbox is a separate field of the same object, read on its own so a
@@ -324,7 +324,7 @@ document.getElementById('addCategoryBtn').addEventListener('click', () => {
   if (!name || amountInput.value.trim() === '' || !Number.isFinite(amount)) {
     document.getElementById('saveStatus').className = 'save-status error';
     document.getElementById('saveStatus').textContent =
-      'Informe um nome e um limite numérico para a nova categoria.';
+      'Enter a name and a numeric limit for the new category.';
     return;
   }
   if (amount <= 0) {
@@ -332,7 +332,7 @@ document.getElementById('addCategoryBtn').addEventListener('click', () => {
     // here means the row is never rendered with a value that cannot be saved.
     document.getElementById('saveStatus').className = 'save-status error';
     document.getElementById('saveStatus').textContent =
-      'O limite de uma categoria precisa ser positivo.';
+      'A category limit must be positive.';
     return;
   }
   readFormIntoConfig();
@@ -370,7 +370,7 @@ document.getElementById('saveBtn').addEventListener('click', async () => {
   }
   saveBtn.disabled = true;
   statusEl.className = 'save-status';
-  statusEl.textContent = 'Salvando…';
+  statusEl.textContent = 'Saving…';
 
   try {
     const res = await ManagerAuth.fetch('/api/config', {
@@ -385,10 +385,10 @@ document.getElementById('saveBtn').addEventListener('click', async () => {
     config = await res.json();
     renderAll();
     statusEl.className = 'save-status ok';
-    statusEl.textContent = 'Salvo.';
+    statusEl.textContent = 'Saved.';
   } catch (err) {
     statusEl.className = 'save-status error';
-    statusEl.textContent = 'Erro ao salvar: ' + err.message;
+    statusEl.textContent = 'Error saving: ' + err.message;
   } finally {
     saveBtn.disabled = false;
   }

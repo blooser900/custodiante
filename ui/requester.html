@@ -1,9 +1,9 @@
 <!doctype html>
-<html lang="pt-BR">
+<html lang="en">
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Tameion · Livro de pagamentos</title>
+<title>Tameion · Payment ledger</title>
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
@@ -149,54 +149,54 @@
 
   <header class="top">
     <div>
-      <h1>Solicitar pagamento</h1>
-      <p class="lede">Envie um pedido e acompanhe o andamento. Você verá o status de cada pedido que enviou neste navegador.</p>
+      <h1>Request a payment</h1>
+      <p class="lede">Submit a request and follow its progress. You will see the status of every request you sent from this browser.</p>
     </div>
   </header>
 
   <section>
-    <h2>Novo pedido</h2>
+    <h2>New request</h2>
     <form class="new-request" id="newRequestForm">
       <div>
-        <label for="f-category">Categoria</label>
+        <label for="f-category">Category</label>
         <select id="f-category" required>
-          <option value="contractor_milestone">Entrega de contratado (milestone)</option>
-          <option value="supply_purchase">Compra de insumo</option>
-          <option value="operational_expense">Despesa operacional</option>
-          <option value="other">Outro</option>
+          <option value="contractor_milestone">Contractor milestone</option>
+          <option value="supply_purchase">Supply purchase</option>
+          <option value="operational_expense">Operational expense</option>
+          <option value="other">Other</option>
         </select>
       </div>
       <div>
-        <label for="f-amount">Valor (USDC)</label>
+        <label for="f-amount">Amount (USDC)</label>
         <input id="f-amount" type="number" step="0.01" min="0.01" required />
       </div>
       <div>
-        <label for="f-requester">Seu nome ou área</label>
+        <label for="f-requester">Your name or team</label>
         <input id="f-requester" type="text" maxlength="100" required />
       </div>
       <div>
-        <label for="f-wallet">Carteira de destino</label>
+        <label for="f-wallet">Destination wallet</label>
         <input id="f-wallet" type="text" maxlength="100" placeholder="0x…" />
-        <p class="hint">Obrigatória para que o pagamento possa ser enviado.</p>
+        <p class="hint">Required for the payment to be sent.</p>
       </div>
       <div class="full">
-        <label for="f-description">Descrição</label>
+        <label for="f-description">Description</label>
         <textarea id="f-description" maxlength="2000" required></textarea>
-        <p class="hint">Explique o que está sendo pago e por quê.</p>
+        <p class="hint">Explain what is being paid for, and why.</p>
       </div>
       <div class="full" id="codeRow" hidden>
-        <label for="f-code">Código de acesso</label>
+        <label for="f-code">Access code</label>
         <input id="f-code" type="password" autocomplete="off" />
       </div>
       <div class="form-actions">
-        <button type="submit" class="primary">Enviar pedido</button>
+        <button type="submit" class="primary">Submit request</button>
         <span class="form-result" id="formResult" role="status"></span>
       </div>
     </form>
   </section>
 
   <section>
-    <h2>Meus pedidos</h2>
+    <h2>My requests</h2>
     <div id="myRequests"></div>
   </section>
 
@@ -208,23 +208,23 @@ const MAX_TRACKED = 20;
 const EXPLORER_TX_URL = 'https://explorer.testnet.arc.io/tx/';
 
 const CATEGORY_LABEL = {
-  contractor_milestone: 'Milestone de contratado',
-  supply_purchase: 'Compra de insumo',
-  operational_expense: 'Despesa operacional',
-  other: 'Outro',
+  contractor_milestone: 'Contractor milestone',
+  supply_purchase: 'Supply purchase',
+  operational_expense: 'Operational expense',
+  other: 'Other',
 };
 const STATE_LABEL = {
-  in_review: 'Em análise',
-  approved: 'Aprovado · pagamento em processamento',
-  paid: 'Pago',
-  declined: 'Recusado',
+  in_review: 'Under review',
+  approved: 'Approved · payment processing',
+  paid: 'Paid',
+  declined: 'Declined',
 };
 
 function escapeHtml(v) {
   return String(v).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
-const fmtAmount = v => Number(v).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' USDC';
-const fmtWhen = iso => new Date(iso).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
+const fmtAmount = v => Number(v).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' USDC';
+const fmtWhen = iso => new Date(iso).toLocaleString('en-US', { dateStyle: 'short', timeStyle: 'short' });
 
 // Ids of the requests sent from this browser. The server has no notion of
 // "my requests": possessing an id is what allows reading its status.
@@ -252,11 +252,11 @@ function rowHtml(s) {
     <div class="req-row">
       <div>
         <p class="req-title">${escapeHtml(CATEGORY_LABEL[s.category] || s.category)}</p>
-        <p class="req-meta">${escapeHtml(s.request_id)} · atualizado ${fmtWhen(s.updated_at)}${tx}</p>
+        <p class="req-meta">${escapeHtml(s.request_id)} · updated ${fmtWhen(s.updated_at)}${tx}</p>
         <span class="state ${escapeHtml(s.status)}">${escapeHtml(STATE_LABEL[s.status] || s.status)}</span>
       </div>
       <p class="req-amount">${fmtAmount(s.amount_requested)}
-        ${approvedDiffers ? `<small>aprovado: ${fmtAmount(s.amount_approved)}</small>` : ''}</p>
+        ${approvedDiffers ? `<small>approved: ${fmtAmount(s.amount_approved)}</small>` : ''}</p>
     </div>`;
 }
 
@@ -264,13 +264,13 @@ async function renderMine() {
   const el = document.getElementById('myRequests');
   const ids = tracked();
   if (ids.length === 0) {
-    el.innerHTML = '<p class="empty">Você ainda não enviou nenhum pedido neste navegador.</p>';
+    el.innerHTML = '<p class="empty">You have not submitted any request from this browser yet.</p>';
     return;
   }
   const results = await Promise.all(ids.map(id => fetchStatus(id).catch(() => undefined)));
   el.innerHTML = results.map((s, i) => {
-    if (s === undefined) return `<div class="req-row"><p class="req-meta">${escapeHtml(ids[i])} · não foi possível atualizar agora.</p></div>`;
-    if (s === null) return `<div class="req-row"><p class="req-meta">${escapeHtml(ids[i])} · pedido não encontrado.</p></div>`;
+    if (s === undefined) return `<div class="req-row"><p class="req-meta">${escapeHtml(ids[i])} · could not be refreshed right now.</p></div>`;
+    if (s === null) return `<div class="req-row"><p class="req-meta">${escapeHtml(ids[i])} · request not found.</p></div>`;
     return rowHtml(s);
   }).join('');
 }
@@ -288,7 +288,7 @@ document.getElementById('newRequestForm').addEventListener('submit', async (ev) 
   const submitBtn = ev.target.querySelector('button[type="submit"]');
   submitBtn.disabled = true;
   resultEl.className = 'form-result';
-  resultEl.textContent = 'Enviando…';
+  resultEl.textContent = 'Submitting…';
 
   const payload = {
     category: document.getElementById('f-category').value,
@@ -303,12 +303,12 @@ document.getElementById('newRequestForm').addEventListener('submit', async (ev) 
 
   try {
     const res = await fetch('/api/requester/requests', { method: 'POST', headers, body: JSON.stringify(payload) });
-    if (res.status === 401) throw new Error('Código de acesso inválido.');
-    if (res.status === 422) throw new Error('Confira os campos: algum valor não é válido.');
-    if (!res.ok) throw new Error('Não foi possível enviar agora. Tente novamente em instantes.');
+    if (res.status === 401) throw new Error('Invalid access code.');
+    if (res.status === 422) throw new Error('Check the fields: one value is not valid.');
+    if (!res.ok) throw new Error('Could not submit right now. Try again shortly.');
     const status = await res.json();
     track(status.request_id);
-    resultEl.textContent = 'Pedido recebido. Acompanhe abaixo.';
+    resultEl.textContent = 'Request received. Track it below.';
     ev.target.reset();
     await renderMine();
   } catch (err) {

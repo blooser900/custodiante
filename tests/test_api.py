@@ -557,7 +557,7 @@ REQUESTER_BODY = {
     "category": "operational_expense",
     "amount_usdc": 40,
     "requester": "Ana",
-    "description": "Material de escritório.",
+    "description": "Office supplies.",
 }
 
 

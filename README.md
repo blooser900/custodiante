@@ -298,7 +298,7 @@ neither can skip the first row):
 
 While a row still carries `payment_attempt`, that payment is unaccounted for.
 A retry raises `PaymentInFlightError` (HTTP 409) instead of paying again, the
-dashboard counts it as *sem confirmação*, and the way out is **Reconciliar** in the
+dashboard counts it as *Unconfirmed*, and the way out is **Reconcile** in the
 dashboard (`POST /api/requests/{id}/reconcile`). The system will not guess: on
 such a row the money is unknown, not zero, which is why it is reported apart from
 failed payments.
@@ -310,10 +310,10 @@ own way out. Both actions are manager-only and take a `reviewer` name for the lo
 
 | Payment status | What happened | What the dashboard offers |
 |---|---|---|
-| `unconfirmed`, or a row left `Sem confirmação` by a crash | The transfer may have gone out and the outcome is unknown | **Reconciliar**: asks Circle how it ended. COMPLETE becomes `executed`; FAILED, CANCELLED or DENIED becomes `failed`. Read only: it never sends money, and when Circle is still working or has no record it records nothing, so pressing it again does not fill the log. |
-| `unconfirmed` and Circle has no record of it | Probably never sent (e.g. the process died first) | **Reenviar…**: resends with the *same* idempotency key, and only after a fresh lookup finds nothing. If the lookup missed an existing transfer, Circle answers with it instead of creating a second one. |
-| `failed` | Circle refused it or it ended FAILED, CANCELLED or DENIED: the money did not move | **Tentar de novo**: a new attempt number, hence a new key (the old one may replay the failure). |
-| `skipped` | Nothing was ever sent, e.g. `CIRCLE_API_KEY` was missing | **Tentar de novo**, once the cause is fixed. |
+| `unconfirmed`, or a row left `Unconfirmed` by a crash | The transfer may have gone out and the outcome is unknown | **Reconcile**: asks Circle how it ended. COMPLETE becomes `executed`; FAILED, CANCELLED or DENIED becomes `failed`. Read only: it never sends money, and when Circle is still working or has no record it records nothing, so pressing it again does not fill the log. |
+| `unconfirmed` and Circle has no record of it | Probably never sent (e.g. the process died first) | **Resend…**: resends with the *same* idempotency key, and only after a fresh lookup finds nothing. If the lookup missed an existing transfer, Circle answers with it instead of creating a second one. |
+| `failed` | Circle refused it or it ended FAILED, CANCELLED or DENIED: the money did not move | **Try again**: a new attempt number, hence a new key (the old one may replay the failure). |
+| `skipped` | Nothing was ever sent, e.g. `CIRCLE_API_KEY` was missing | **Try again**, once the cause is fixed. |
 
 A retry is a payment like any other: it writes the in-flight row first, so a crash
 during it is just as visible (`PaymentInFlightError`, HTTP 409, on the next click).
@@ -398,8 +398,9 @@ id is written on-chain, never the description.
 
 **Demo mode.** If `ESCROW_PROVIDER_WALLET_ADDRESS` equals the request's
 `counterparty_wallet`, we control the contractor's key: the pipeline sets the
-budget and funds the escrow immediately, and the dashboard offers "Simular
-entrega". With a real contractor they set the budget and submit themselves.
+budget and funds the escrow immediately, and the dashboard offers "Simulate
+delivery (demo)". With a real contractor they set the budget and submit
+themselves.
 
 **Verification status.** Validated on Arc testnet with
 `python -m scripts.escrow_smoke`: the full happy path (create, budget, fund,
@@ -544,7 +545,7 @@ just by which page is open:
 |---|---|---|
 | Page | `/` | `/manager`, `/manager/settings` |
 | Can | submit a payment request; follow its status | see every request with scores, certainty, reasons and engine; approve/deny escalations; fund/release/reject escrow; edit the rules |
-| Sees | a coarse status: *Em análise*, *Aprovado*, *Pago*, *Recusado*; the amounts; the tx once paid | everything |
+| Sees | a coarse status: *Under review*, *Approved*, *Paid*, *Declined*; the amounts; the tx once paid | everything |
 | Auth | none (optional shared `REQUESTER_ACCESS_CODE` to submit) | `MANAGER_TOKEN` as a bearer token |
 
 Why the requester must not see how a decision was made: the policy `reason`

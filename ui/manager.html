@@ -1,9 +1,9 @@
 <!doctype html>
-<html lang="pt-BR">
+<html lang="en">
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Tameion · Livro de pagamentos</title>
+<title>Tameion · Payment ledger</title>
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
@@ -238,46 +238,46 @@
 <div class="page">
 
   <header class="top">
-    <h1>Livro de pagamentos</h1>
+    <h1>Payment ledger</h1>
     <div style="display:flex; align-items:baseline; gap:1.25rem;">
-      <div class="stat-line" id="statLine">Carregando…</div>
+      <div class="stat-line" id="statLine">Loading…</div>
       <div class="integrity" id="integrity"></div>
-      <a href="/manager/settings" style="font-size:0.85rem; color:var(--ink-soft); text-decoration:none;">Regras &rarr;</a>
-      <a href="/" style="font-size:0.85rem; color:var(--ink-soft); text-decoration:none;">Portal do solicitante &rarr;</a>
-      <a href="#" id="logout" style="font-size:0.85rem; color:var(--ink-soft); text-decoration:none;">Sair</a>
+      <a href="/manager/settings" style="font-size:0.85rem; color:var(--ink-soft); text-decoration:none;">Rules &rarr;</a>
+      <a href="/" style="font-size:0.85rem; color:var(--ink-soft); text-decoration:none;">Requester portal &rarr;</a>
+      <a href="#" id="logout" style="font-size:0.85rem; color:var(--ink-soft); text-decoration:none;">Sign out</a>
     </div>
   </header>
 
   <section>
     <div class="section-head">
-      <h2>Precisa da sua decisão</h2>
+      <h2>Waiting for your decision</h2>
       <div class="reviewer-field">
-        Revisado por
-        <input id="reviewerName" type="text" placeholder="seu nome" value="operador" />
+        Reviewed by
+        <input id="reviewerName" type="text" placeholder="your name" value="operator" />
       </div>
     </div>
     <div id="pendingList"></div>
   </section>
 
   <section>
-    <h2>Milestones em escrow</h2>
-    <p class="pending-meta">O valor fica travado no contrato até você confirmar a entrega.</p>
+    <h2>Milestones in escrow</h2>
+    <p class="pending-meta">The amount stays locked in the contract until you confirm delivery.</p>
     <div id="milestoneList"></div>
   </section>
 
   <section>
-    <h2>Histórico</h2>
+    <h2>History</h2>
     <div class="ledger-wrap">
       <table class="ledger">
         <thead>
           <tr>
-            <th>Quando</th>
-            <th>Solicitação</th>
-            <th>Categoria</th>
-            <th>Valor</th>
-            <th>Decisão</th>
-            <th>Pago</th>
-            <th>Transação</th>
+            <th>When</th>
+            <th>Request</th>
+            <th>Category</th>
+            <th>Amount</th>
+            <th>Decision</th>
+            <th>Paid</th>
+            <th>Transaction</th>
           </tr>
         </thead>
         <tbody id="ledgerBody"></tbody>
@@ -292,9 +292,9 @@
 const API = '';
 const CATEGORY_LABEL = {
   contractor_milestone: 'Contractor milestone',
-  supply_purchase: 'Compra de insumo',
-  operational_expense: 'Despesa operacional',
-  other: 'Outro',
+  supply_purchase: 'Supply purchase',
+  operational_expense: 'Operational expense',
+  other: 'Other',
 };
 const EXPLORER_TX_URL = 'https://explorer.testnet.arc.io/tx/';
 
@@ -303,7 +303,7 @@ function fmtAmount(v) {
 }
 function fmtWhen(iso) {
   const d = new Date(iso);
-  return d.toLocaleString('pt-BR', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
+  return d.toLocaleString('en-US', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
 }
 function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -323,36 +323,36 @@ function renderIntegrity(report) {
   if (!el) return;
   if (report.ok) {
     el.className = 'integrity ok';
-    el.textContent = report.chained ? `Log íntegro · ${report.chained} entradas verificadas` : 'Log vazio';
+    el.textContent = report.chained ? `Chain intact · ${report.chained} entries verified` : 'Empty log';
   } else {
     el.className = 'integrity bad';
-    el.textContent = `Log ADULTERADO · ${report.message}`;
+    el.textContent = `Log TAMPERED WITH · ${report.message}`;
   }
 }
 
 function renderStats(stats) {
   document.getElementById('statLine').innerHTML =
-    `<strong>${stats.pending_count}</strong> pendente${stats.pending_count === 1 ? '' : 's'} · ` +
-    `<strong>${fmtAmount(stats.paid_total_usdc)}</strong> pago · ` +
-    (stats.escrowed_total_usdc ? `<strong>${fmtAmount(stats.escrowed_total_usdc)}</strong> em escrow · ` : '') +
-    `${stats.total_requests} solicitaç${stats.total_requests === 1 ? 'ão' : 'ões'} no total` +
-    (stats.milestones_needing_attention ? ` · <strong class="pay-failed">${stats.milestones_needing_attention} milestone${stats.milestones_needing_attention === 1 ? '' : 's'} com ação falha</strong>` : '') +
-    (stats.payments_failed ? ` · <strong class="pay-failed">${stats.payments_failed} pagamento${stats.payments_failed === 1 ? '' : 's'} com falha</strong>` : '') +
-    (stats.payments_in_flight ? ` · <strong class="pay-failed">${stats.payments_in_flight} pagamento${stats.payments_in_flight === 1 ? '' : 's'} sem confirmação</strong>` : '');
+    `<strong>${stats.pending_count}</strong> pending · ` +
+    `<strong>${fmtAmount(stats.paid_total_usdc)}</strong> paid · ` +
+    (stats.escrowed_total_usdc ? `<strong>${fmtAmount(stats.escrowed_total_usdc)}</strong> in escrow · ` : '') +
+    `${stats.total_requests} request${stats.total_requests === 1 ? '' : 's'} in total` +
+    (stats.milestones_needing_attention ? ` · <strong class="pay-failed">${stats.milestones_needing_attention} milestone${stats.milestones_needing_attention === 1 ? '' : 's'} with a failed action</strong>` : '') +
+    (stats.payments_failed ? ` · <strong class="pay-failed">${stats.payments_failed} payment${stats.payments_failed === 1 ? '' : 's'} failed</strong>` : '') +
+    (stats.payments_in_flight ? ` · <strong class="pay-failed">${stats.payments_in_flight} payment${stats.payments_in_flight === 1 ? '' : 's'} unconfirmed</strong>` : '');
 }
 
 // A score is the engine's rating (0..1); its confidence is how sure the
 // engine is of that rating. Both are shown, and only here: this page is the
 // one audience that may see how the engine reasons.
 function scoreLine(scores) {
-  const part = (label, sc) => `${label} ${sc.value.toFixed(2)} (certeza ${Math.round(sc.confidence * 100)}%)`;
-  return `${part('Confiabilidade', scores.trust)} · ${part('Urgência', scores.urgency)} · ${part('Importância', scores.importance)}`;
+  const part = (label, sc) => `${label} ${sc.value.toFixed(2)} (confidence ${Math.round(sc.confidence * 100)}%)`;
+  return `${part('Trust', scores.trust)} · ${part('Urgency', scores.urgency)} · ${part('Importance', scores.importance)}`;
 }
 
 const QUESTION_LABEL = {
-  natureza_transacao: 'Natureza',
-  fraud_indicators: 'Indícios de fraude',
-  description_matches_category: 'Descrição compatível com a categoria',
+  natureza_transacao: 'Nature',
+  fraud_indicators: 'Fraud indicators',
+  description_matches_category: 'Description matches the category',
 };
 const pct = v => Math.round(v * 100) + '%';
 
@@ -362,21 +362,21 @@ const pct = v => Math.round(v * 100) + '%';
 function extraLines(scores) {
   return Object.entries(scores.extra || {}).map(([id, a]) => {
     const label = escapeHtml(QUESTION_LABEL[id] || id.replace(/_/g, ' '));
-    if (a.type === 'noul') return `${label}: ${pct(a.noul)} sim`;
+    if (a.type === 'noul') return `${label}: ${pct(a.noul)} yes`;
     if (a.type === 'choice') {
       const top = a.probabilities[a.choice];
-      return `${label}: ${escapeHtml(a.choice)} (${top == null ? '?' : pct(top)}, certeza ${pct(a.confidence)})`;
+      return `${label}: ${escapeHtml(a.choice)} (${top == null ? '?' : pct(top)}, confidence ${pct(a.confidence)})`;
     }
     const top = Object.keys(a.probabilities).length - 1;
-    return `${label}: ${a.score.toFixed(2)} de ${top} (certeza ${pct(a.confidence)})`;
+    return `${label}: ${a.score.toFixed(2)} out of ${top} (confidence ${pct(a.confidence)})`;
   });
 }
 
 function partyText(name, p) {
-  if (p === null || p === undefined) return `${name}: sem carteira informada`;
-  if (!p.known) return `${name}: sem histórico`;
-  const weak = p.identity_basis === 'self_declared' ? ' (autodeclarado, evidência fraca)' : '';
-  return `${name}: ${p.succeeded}/${p.attempts} concluídos · índice ${p.reliability_index.toFixed(2)}${weak}`;
+  if (p === null || p === undefined) return `${name}: no wallet provided`;
+  if (!p.known) return `${name}: no history`;
+  const weak = p.identity_basis === 'self_declared' ? ' (self-declared, weak evidence)' : '';
+  return `${name}: ${p.succeeded}/${p.attempts} completed · index ${p.reliability_index.toFixed(2)}${weak}`;
 }
 
 // What the model was shown about the past, and anything it failed to answer.
@@ -384,8 +384,8 @@ function evidenceHtml(scores) {
   const ev = scores.evidence;
   const history = ev && ev.state && ev.state.history;
   const lines = [];
-  if (history) lines.push(`Histórico — ${partyText('solicitante', history.requester)} · ${partyText('destino', history.destination)}`);
-  if (ev && ev.problems && ev.problems.length) lines.push(`Respostas ausentes ou inválidas: ${ev.problems.map(escapeHtml).join('; ')}`);
+  if (history) lines.push(`History — ${partyText('requester', history.requester)} · ${partyText('destination', history.destination)}`);
+  if (ev && ev.problems && ev.problems.length) lines.push(`Missing or invalid answers: ${ev.problems.map(escapeHtml).join('; ')}`);
   return lines.map(l => `<p class="score-row">${l}</p>`).join('');
 }
 
@@ -397,7 +397,7 @@ function assessmentHtml(scores) {
 function renderPending(items) {
   const el = document.getElementById('pendingList');
   if (items.length === 0) {
-    el.innerHTML = '<p class="empty">Nenhuma solicitação pendente — tudo em dia.</p>';
+    el.innerHTML = '<p class="empty">No pending requests — all caught up.</p>';
     return;
   }
   el.innerHTML = items.map(e => {
@@ -415,8 +415,8 @@ function renderPending(items) {
         <div>
           <p class="amount" style="text-align:right">${fmtAmount(r.amount_usdc)}</p>
           <div class="actions">
-            <button class="deny" data-action="deny" data-id="${escapeHtml(r.request_id)}">Negar</button>
-            <button class="approve" data-action="approve" data-id="${escapeHtml(r.request_id)}">Aprovar</button>
+            <button class="deny" data-action="deny" data-id="${escapeHtml(r.request_id)}">Deny</button>
+            <button class="approve" data-action="approve" data-id="${escapeHtml(r.request_id)}">Approve</button>
           </div>
         </div>
       </div>`;
@@ -425,17 +425,17 @@ function renderPending(items) {
 
 function decisionBadge(e) {
   if (e.decision === 'escalate' && e.human_review === 'denied') {
-    return `<span class="badge escalate denied">Negado${e.reviewer ? ' · ' + escapeHtml(e.reviewer) : ''}</span>`;
+    return `<span class="badge escalate denied">Denied${e.reviewer ? ' · ' + escapeHtml(e.reviewer) : ''}</span>`;
   }
   if (e.decision === 'escalate') {
-    return `<span class="badge escalate">Escalado</span>`;
+    return `<span class="badge escalate">Escalated</span>`;
   }
   if (e.decision === 'approve_reduced') {
-    return `<span class="badge approve_reduced">Aprovado (reduzido)</span>`;
+    return `<span class="badge approve_reduced">Approved (reduced)</span>`;
   }
   if (e.decision === 'approve') {
-    const human = e.human_review === 'approved' ? ` · ${escapeHtml(e.reviewer || 'humano')}` : '';
-    return `<span class="badge approve">Aprovado${human}</span>`;
+    const human = e.human_review === 'approved' ? ` · ${escapeHtml(e.reviewer || 'human')}` : '';
+    return `<span class="badge approve">Approved${human}</span>`;
   }
   return `<span class="badge">${escapeHtml(e.decision)}</span>`;
 }
@@ -445,29 +445,29 @@ function paymentCell(e) {
   // transfer and writing its outcome. Must read as "unknown", never as "no",
   // or a reviewer would think nothing was spent.
   if (e.payment_attempt) {
-    return `<span class="pay-failed" title="${escapeHtml(e.payment_attempt)} — reconcile com a Circle/Arc antes de repetir">Sem confirmação</span>`;
+    return `<span class="pay-failed" title="${escapeHtml(e.payment_attempt)} — reconcile with Circle/Arc before retrying">Unconfirmed</span>`;
   }
   // payment_status is null on entries written before the field existed.
   const status = e.payment_status || (e.payment_executed ? 'executed' : 'not_applicable');
   const detail = escapeHtml(e.payment_detail || '');
-  if (status === 'executed') return 'Sim';
-  if (status === 'escrow_open') return '<span class="pay-skipped" title="Job criado; aguardando o contratado definir o orçamento.">Escrow aberto</span>';
-  if (status === 'escrowed') return '<span class="pay-skipped" title="Valor travado no contrato, ainda não liberado.">Em escrow</span>';
-  if (status === 'refunded') return 'Reembolsado';
-  if (status === 'failed') return `<span class="pay-failed" title="${detail}">Falhou</span>`;
-  if (status === 'skipped') return `<span class="pay-skipped" title="${detail}">Não enviado</span>`;
-  return 'Não';
+  if (status === 'executed') return 'Yes';
+  if (status === 'escrow_open') return '<span class="pay-skipped" title="Job created; waiting for the contractor to set the budget.">Escrow open</span>';
+  if (status === 'escrowed') return '<span class="pay-skipped" title="Amount locked in the contract, not released yet.">In escrow</span>';
+  if (status === 'refunded') return 'Refunded';
+  if (status === 'failed') return `<span class="pay-failed" title="${detail}">Failed</span>`;
+  if (status === 'skipped') return `<span class="pay-skipped" title="${detail}">Not sent</span>`;
+  return 'No';
 }
 
 // How to get an approved payment out of a stuck state. Reconciling only ASKS
 // Circle (it never sends money); the other two do send, so they confirm first.
-//   in flight (sent, outcome unknown) -> Reconciliar; Reenviar only if Circle has no record
-//   failed / not sent                 -> Tentar de novo
+//   in flight (sent, outcome unknown) -> Reconcile; Resend only if Circle has no record
+//   failed / not sent                 -> Try again
 let ledgerEntries = []; // what renderLedger last drew, for the confirm texts
 
 const RECOVERY_CONFIRM = {
-  resend: 'Reenviar só faz sentido se o "Reconciliar" disse que a Circle NÃO tem registro desta transferência.\n\n' +
-          'O reenvio usa a MESMA chave de idempotência: se a transferência existir, a Circle responde com ela em vez de criar outra.\n\nReenviar?',
+  resend: 'Resending only makes sense if "Reconcile" said Circle has NO record of this transfer.\n\n' +
+          'The resend uses the SAME idempotency key: if the transfer exists, Circle returns it instead of creating another one.\n\nResend?',
   retry: null, // built per row: it names the amount and the wallet
 };
 
@@ -477,15 +477,15 @@ function recoveryButtons(e) {
   const id = escapeHtml(r.request_id);
   if (e.payment_attempt) {
     return `<div class="rec-actions">
-      <button class="rec-btn" data-rec="reconcile" data-id="${id}" title="Pergunta à Circle como a transferência terminou. Não envia dinheiro.">Reconciliar</button>
-      <button class="rec-btn" data-rec="resend" data-id="${id}" title="Só se a Circle não tiver registro. Reusa a mesma chave de idempotência.">Reenviar…</button>
+      <button class="rec-btn" data-rec="reconcile" data-id="${id}" title="Asks Circle how the transfer ended. It does not send money.">Reconcile</button>
+      <button class="rec-btn" data-rec="resend" data-id="${id}" title="Only if Circle has no record. Reuses the same idempotency key.">Resend…</button>
     </div>`;
   }
   const approved = e.decision === 'approve' || e.decision === 'approve_reduced';
   const retryable = e.payment_status === 'failed' || e.payment_status === 'skipped';
   if (approved && retryable && r.counterparty_wallet) {
     return `<div class="rec-actions">
-      <button class="rec-btn" data-rec="retry" data-id="${id}" title="Tenta pagar de novo com uma nova chave de idempotência.">Tentar de novo</button>
+      <button class="rec-btn" data-rec="retry" data-id="${id}" title="Tries to pay again with a new idempotency key.">Try again</button>
     </div>`;
   }
   return '';
@@ -495,7 +495,7 @@ function renderLedger(entries) {
   ledgerEntries = entries;
   const body = document.getElementById('ledgerBody');
   if (entries.length === 0) {
-    body.innerHTML = '<tr><td colspan="7" class="empty">Nenhuma solicitação registrada ainda.</td></tr>';
+    body.innerHTML = '<tr><td colspan="7" class="empty">No requests recorded yet.</td></tr>';
     return;
   }
   body.innerHTML = entries.map(e => {
@@ -515,7 +515,7 @@ function renderLedger(entries) {
               <p class="detail-reason">${escapeHtml(e.reason)}</p>
               <p class="score-row">${scoreLine(e.scores)}</p>
               ${assessmentHtml(e.scores)}
-              <p class="score-row">motor: ${escapeHtml(e.engine_name || 'desconhecido')}${e.reviewer ? ' · revisor: ' + escapeHtml(e.reviewer) : ''}</p>
+              <p class="score-row">engine: ${escapeHtml(e.engine_name || 'unknown')}${e.reviewer ? ' · reviewer: ' + escapeHtml(e.reviewer) : ''}</p>
             </div>
           </details>
         </td>
@@ -533,14 +533,14 @@ function milestoneButtons(m) {
   const chain = m.chain_status;  // null when the RPC read failed
   const buttons = [];
   if (m.escrow_status === 'open' || chain === 'Open') {
-    buttons.push(`<button data-ms="fund" data-id="${id}">Financiar</button>`);
+    buttons.push(`<button data-ms="fund" data-id="${id}">Fund</button>`);
   }
   if (m.demo_contractor && chain === 'Funded') {
-    buttons.push(`<button data-ms="deliver" data-id="${id}" title="Demo: assina como o contratado">Simular entrega (demo)</button>`);
+    buttons.push(`<button data-ms="deliver" data-id="${id}" title="Demo: signs as the contractor">Simulate delivery (demo)</button>`);
   }
   const canRelease = chain === 'Submitted';
-  buttons.push(`<button class="release" data-ms="release" data-id="${id}" ${canRelease ? '' : 'disabled'} title="${canRelease ? '' : 'Só é possível liberar depois que o contratado entregar.'}">Liberar pagamento</button>`);
-  buttons.push(`<button class="deny" data-ms="reject" data-id="${id}">Rejeitar e reembolsar</button>`);
+  buttons.push(`<button class="release" data-ms="release" data-id="${id}" ${canRelease ? '' : 'disabled'} title="${canRelease ? '' : 'Release is only possible after the contractor delivers.'}">Release payment</button>`);
+  buttons.push(`<button class="deny" data-ms="reject" data-id="${id}">Reject and refund</button>`);
   return buttons.join('');
 }
 
@@ -549,21 +549,21 @@ function failedAttemptHtml(a) {
   const tx = a.tx_hash
     ? ` <a class="tx-link" href="${EXPLORER_TX_URL}${encodeURIComponent(a.tx_hash)}" target="_blank" rel="noopener">${escapeHtml(a.tx_hash.slice(0, 10))}…</a>`
     : '';
-  return `<p class="attempt-failed">Última tentativa falhou (${escapeHtml(a.action)}): ${escapeHtml(a.error)}${tx}</p>`;
+  return `<p class="attempt-failed">Last attempt failed (${escapeHtml(a.action)}): ${escapeHtml(a.error)}${tx}</p>`;
 }
 
 function renderMilestones(items) {
   const el = document.getElementById('milestoneList');
   if (items.length === 0) {
-    el.innerHTML = '<p class="empty">Nenhum milestone em escrow.</p>';
+    el.innerHTML = '<p class="empty">No milestones in escrow.</p>';
     return;
   }
   el.innerHTML = items.map(m => {
     const r = m.request;
     const amount = m.reduced_amount ?? r.amount_usdc;
     const chain = m.chain_status
-      ? `na cadeia: ${escapeHtml(m.chain_status)}`
-      : `cadeia indisponível${m.chain_error ? ' (' + escapeHtml(m.chain_error) + ')' : ''}`;
+      ? `on chain: ${escapeHtml(m.chain_status)}`
+      : `chain unavailable${m.chain_error ? ' (' + escapeHtml(m.chain_error) + ')' : ''}`;
     return `
       <div class="pending-row" data-id="${escapeHtml(r.request_id)}">
         <div class="pending-main">
@@ -600,7 +600,7 @@ document.getElementById('pendingList').addEventListener('click', async (ev) => {
   if (!btn) return;
   const requestId = btn.dataset.id;
   const action = btn.dataset.action;
-  const reviewer = document.getElementById('reviewerName').value.trim() || 'operador';
+  const reviewer = document.getElementById('reviewerName').value.trim() || 'operator';
 
   const row = btn.closest('.pending-row');
   row.querySelectorAll('button').forEach(b => b.disabled = true);
@@ -618,14 +618,14 @@ document.getElementById('pendingList').addEventListener('click', async (ev) => {
       setTimeout(() => ledgerRow.classList.remove('flash'), 1200);
     }
   } catch (err) {
-    alert('Não foi possível registrar a decisão: ' + err.message);
+    alert('Could not record the decision: ' + err.message);
     row.querySelectorAll('button').forEach(b => b.disabled = false);
   }
 });
 
 const MILESTONE_CONFIRM = {
-  release: 'Liberar o pagamento ao contratado? Esta ação é definitiva.',
-  reject: 'Rejeitar o milestone e reembolsar o valor travado?',
+  release: 'Release the payment to the contractor? This action is final.',
+  reject: 'Reject the milestone and refund the locked amount?',
 };
 
 document.getElementById('ledgerBody').addEventListener('click', async (ev) => {
@@ -633,7 +633,7 @@ document.getElementById('ledgerBody').addEventListener('click', async (ev) => {
   if (!btn || btn.disabled) return;
   const kind = btn.dataset.rec;
   const id = btn.dataset.id;
-  const reviewer = document.getElementById('reviewerName').value.trim() || 'operador';
+  const reviewer = document.getElementById('reviewerName').value.trim() || 'operator';
 
   let url, body;
   if (kind === 'reconcile') {
@@ -645,7 +645,7 @@ document.getElementById('ledgerBody').addEventListener('click', async (ev) => {
       const r = entry && entry.request;
       const amount = entry ? (entry.payment_amount_usdc ?? entry.reduced_amount ?? r.amount_usdc) : '?';
       const where = r ? r.counterparty_wallet : '?';
-      if (!confirm(`Tentar pagar de novo ${amount} USDC para ${where}?\n\nA tentativa anterior falhou de forma definitiva, então é seguro repetir. Usa uma nova chave de idempotência.`)) return;
+      if (!confirm(`Try to pay ${amount} USDC to ${where} again?\n\nThe previous attempt failed permanently, so it is safe to repeat. It uses a new idempotency key.`)) return;
     } else if (!confirm(RECOVERY_CONFIRM.resend)) {
       return;
     }
@@ -655,7 +655,7 @@ document.getElementById('ledgerBody').addEventListener('click', async (ev) => {
 
   const original = btn.textContent;
   btn.closest('.rec-actions').querySelectorAll('button').forEach(b => b.disabled = true);
-  btn.textContent = 'Aguardando a Circle…';
+  btn.textContent = 'Waiting for Circle…';
   try {
     const result = await fetchJSON(url, {
       method: 'POST',
@@ -666,7 +666,7 @@ document.getElementById('ledgerBody').addEventListener('click', async (ev) => {
     await refresh();
   } catch (err) {
     btn.textContent = original;
-    alert('Não foi possível concluir a ação: ' + err.message);
+    alert('Could not complete the action: ' + err.message);
     await refresh();
   }
 });
@@ -676,11 +676,11 @@ document.getElementById('milestoneList').addEventListener('click', async (ev) =>
   if (!btn || btn.disabled) return;
   const action = btn.dataset.ms;
   if (MILESTONE_CONFIRM[action] && !confirm(MILESTONE_CONFIRM[action])) return;
-  const reviewer = document.getElementById('reviewerName').value.trim() || 'operador';
+  const reviewer = document.getElementById('reviewerName').value.trim() || 'operator';
 
   const row = btn.closest('.pending-row');
   row.querySelectorAll('button').forEach(b => b.disabled = true);
-  btn.textContent = 'Aguardando a blockchain…';
+  btn.textContent = 'Waiting for the blockchain…';
   try {
     await fetchJSON(`/api/milestones/${encodeURIComponent(btn.dataset.id)}/${action}`, {
       method: 'POST',
@@ -689,7 +689,7 @@ document.getElementById('milestoneList').addEventListener('click', async (ev) =>
     });
     await refresh();
   } catch (err) {
-    alert('Não foi possível concluir a ação: ' + err.message);
+    alert('Could not complete the action: ' + err.message);
     await refresh();
   }
 });
@@ -707,7 +707,7 @@ async function refresh() {
       clearInterval(pollTimer);
       return;
     }
-    document.getElementById('statLine').textContent = 'Não foi possível atualizar: ' + err.message;
+    document.getElementById('statLine').textContent = 'Could not refresh: ' + err.message;
   }
 }
 

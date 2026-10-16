@@ -1,9 +1,9 @@
 <!doctype html>
-<html lang="pt-BR">
+<html lang="en">
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Tameion · Livro de pagamentos</title>
+<title>Tameion · Payment ledger</title>
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
@@ -250,79 +250,79 @@
 <div class="page">
 
   <header class="top">
-    <h1>Livro de pagamentos</h1>
+    <h1>Payment ledger</h1>
     <div style="display:flex; align-items:baseline; gap:1.25rem;">
-      <div class="stat-line" id="statLine">Carregando…</div>
+      <div class="stat-line" id="statLine">Loading…</div>
       <div class="integrity" id="integrity"></div>
-      <a href="/settings" style="font-size:0.85rem; color:var(--ink-soft); text-decoration:none;">Regras &rarr;</a>
+      <a href="/settings" style="font-size:0.85rem; color:var(--ink-soft); text-decoration:none;">Rules &rarr;</a>
     </div>
   </header>
 
   <section>
     <div class="section-head">
-      <h2>Precisa da sua decisão</h2>
+      <h2>Waiting for your decision</h2>
       <div class="reviewer-field">
-        Revisado por
-        <input id="reviewerName" type="text" placeholder="seu nome" value="operador" />
+        Reviewed by
+        <input id="reviewerName" type="text" placeholder="your name" value="operator" />
       </div>
     </div>
     <div id="pendingList"></div>
   </section>
 
   <section>
-    <h2>Milestones em escrow</h2>
-    <p class="pending-meta">O valor fica travado no contrato até você confirmar a entrega.</p>
+    <h2>Milestones in escrow</h2>
+    <p class="pending-meta">The amount stays locked in the contract until you confirm delivery.</p>
     <div id="milestoneList"></div>
   </section>
 
   <section>
-    <h2>Nova solicitação</h2>
+    <h2>New request</h2>
     <form class="new-request" id="newRequestForm">
       <div>
-        <label for="f-category">Categoria</label>
+        <label for="f-category">Category</label>
         <select id="f-category" required>
           <option value="contractor_milestone">Contractor milestone</option>
-          <option value="supply_purchase">Compra de insumo</option>
-          <option value="operational_expense">Despesa operacional</option>
-          <option value="other">Outro</option>
+          <option value="supply_purchase">Supply purchase</option>
+          <option value="operational_expense">Operational expense</option>
+          <option value="other">Other</option>
         </select>
       </div>
       <div>
-        <label for="f-amount">Valor (USDC)</label>
+        <label for="f-amount">Amount (USDC)</label>
         <input id="f-amount" type="number" step="0.01" min="0.01" required />
       </div>
       <div>
-        <label for="f-requester">Solicitante</label>
+        <label for="f-requester">Requester</label>
         <input id="f-requester" type="text" required />
       </div>
       <div>
-        <label for="f-wallet">Carteira de destino (opcional)</label>
+        <label for="f-wallet">Destination wallet (optional)</label>
         <input id="f-wallet" type="text" placeholder="0x…" />
       </div>
       <div class="full">
-        <label for="f-description">Descrição</label>
+        <label for="f-description">Description</label>
         <textarea id="f-description" required></textarea>
       </div>
       <div class="form-actions">
-        <button type="submit" class="primary">Enviar solicitação</button>
+        <button type="submit" class="primary">Submit request</button>
         <span class="form-result" id="formResult"></span>
       </div>
     </form>
   </section>
 
   <section>
-    <h2>Histórico</h2>
+    <h2>History</h2>
     <div class="ledger-wrap">
       <table class="ledger">
         <thead>
           <tr>
-            <th>Quando</th>
-            <th>Solicitação</th>
-            <th>Categoria</th>
-            <th>Valor</th>
-            <th>Decisão</th>
-            <th>Pago</th>
-            <th>Transação</th>
+            <th>When</th>
+            <th>Request</th>
+            <th>Category</th>
+            <th>Amount</th>
+            <th>Decision</th>
+            <th>Paid</th>
+            <th>Transaction</th>
           </tr>
         </thead>
         <tbody id="ledgerBody"></tbody>
@@ -336,9 +336,9 @@
 const API = '';
 const CATEGORY_LABEL = {
   contractor_milestone: 'Contractor milestone',
-  supply_purchase: 'Compra de insumo',
-  operational_expense: 'Despesa operacional',
-  other: 'Outro',
+  supply_purchase: 'Supply purchase',
+  operational_expense: 'Operational expense',
+  other: 'Other',
 };
 const EXPLORER_TX_URL = 'https://explorer.testnet.arc.io/tx/';
 
@@ -347,7 +347,7 @@ function fmtAmount(v) {
 }
 function fmtWhen(iso) {
   const d = new Date(iso);
-  return d.toLocaleString('pt-BR', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
+  return d.toLocaleString('en-US', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
 }
 function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -367,26 +367,26 @@ function renderIntegrity(report) {
   if (!el) return;
   if (report.ok) {
     el.className = 'integrity ok';
-    el.textContent = report.chained ? `Log íntegro · ${report.chained} entradas verificadas` : 'Log vazio';
+    el.textContent = report.chained ? `Chain intact · ${report.chained} entries verified` : 'Empty log';
   } else {
     el.className = 'integrity bad';
-    el.textContent = `Log ADULTERADO · ${report.message}`;
+    el.textContent = `Log TAMPERED WITH · ${report.message}`;
   }
 }
 
 function renderStats(stats) {
   document.getElementById('statLine').innerHTML =
-    `<strong>${stats.pending_count}</strong> pendente${stats.pending_count === 1 ? '' : 's'} · ` +
-    `<strong>${fmtAmount(stats.paid_total_usdc)}</strong> pago · ` +
-    (stats.escrowed_total_usdc ? `<strong>${fmtAmount(stats.escrowed_total_usdc)}</strong> em escrow · ` : '') +
-    `${stats.total_requests} solicitaç${stats.total_requests === 1 ? 'ão' : 'ões'} no total` +
-    (stats.payments_failed ? ` · <strong class="pay-failed">${stats.payments_failed} pagamento${stats.payments_failed === 1 ? '' : 's'} com falha</strong>` : '');
+    `<strong>${stats.pending_count}</strong> pending · ` +
+    `<strong>${fmtAmount(stats.paid_total_usdc)}</strong> paid · ` +
+    (stats.escrowed_total_usdc ? `<strong>${fmtAmount(stats.escrowed_total_usdc)}</strong> in escrow · ` : '') +
+    `${stats.total_requests} request${stats.total_requests === 1 ? '' : 's'} in total` +
+    (stats.payments_failed ? ` · <strong class="pay-failed">${stats.payments_failed} payment${stats.payments_failed === 1 ? '' : 's'} failed</strong>` : '');
 }
 
 function renderPending(items) {
   const el = document.getElementById('pendingList');
   if (items.length === 0) {
-    el.innerHTML = '<p class="empty">Nenhuma solicitação pendente — tudo em dia.</p>';
+    el.innerHTML = '<p class="empty">No pending requests — all caught up.</p>';
     return;
   }
   el.innerHTML = items.map(e => {
@@ -398,13 +398,13 @@ function renderPending(items) {
           <p class="pending-title">${escapeHtml(r.requester)} · ${CATEGORY_LABEL[r.category] || r.category}</p>
           <p class="pending-meta">${escapeHtml(r.description)}</p>
           <p class="pending-reason">${escapeHtml(e.reason)}</p>
-          <p class="score-row">confiança ${s.trust.value.toFixed(2)} · urgência ${s.urgency.value.toFixed(2)} · importância ${s.importance.value.toFixed(2)}</p>
+          <p class="score-row">trust ${s.trust.value.toFixed(2)} · urgency ${s.urgency.value.toFixed(2)} · importance ${s.importance.value.toFixed(2)}</p>
         </div>
         <div>
           <p class="amount" style="text-align:right">${fmtAmount(r.amount_usdc)}</p>
           <div class="actions">
-            <button class="deny" data-action="deny" data-id="${escapeHtml(r.request_id)}">Negar</button>
-            <button class="approve" data-action="approve" data-id="${escapeHtml(r.request_id)}">Aprovar</button>
+            <button class="deny" data-action="deny" data-id="${escapeHtml(r.request_id)}">Deny</button>
+            <button class="approve" data-action="approve" data-id="${escapeHtml(r.request_id)}">Approve</button>
           </div>
         </div>
       </div>`;
@@ -413,17 +413,17 @@ function renderPending(items) {
 
 function decisionBadge(e) {
   if (e.decision === 'escalate' && e.human_review === 'denied') {
-    return `<span class="badge escalate denied">Negado${e.reviewer ? ' · ' + escapeHtml(e.reviewer) : ''}</span>`;
+    return `<span class="badge escalate denied">Denied${e.reviewer ? ' · ' + escapeHtml(e.reviewer) : ''}</span>`;
   }
   if (e.decision === 'escalate') {
-    return `<span class="badge escalate">Escalado</span>`;
+    return `<span class="badge escalate">Escalated</span>`;
   }
   if (e.decision === 'approve_reduced') {
-    return `<span class="badge approve_reduced">Aprovado (reduzido)</span>`;
+    return `<span class="badge approve_reduced">Approved (reduced)</span>`;
   }
   if (e.decision === 'approve') {
-    const human = e.human_review === 'approved' ? ` · ${escapeHtml(e.reviewer || 'humano')}` : '';
-    return `<span class="badge approve">Aprovado${human}</span>`;
+    const human = e.human_review === 'approved' ? ` · ${escapeHtml(e.reviewer || 'human')}` : '';
+    return `<span class="badge approve">Approved${human}</span>`;
   }
   return `<span class="badge">${escapeHtml(e.decision)}</span>`;
 }
@@ -432,19 +432,19 @@ function paymentCell(e) {
   // payment_status is null on entries written before the field existed.
   const status = e.payment_status || (e.payment_executed ? 'executed' : 'not_applicable');
   const detail = escapeHtml(e.payment_detail || '');
-  if (status === 'executed') return 'Sim';
-  if (status === 'escrow_open') return '<span class="pay-skipped" title="Job criado; aguardando o contratado definir o orçamento.">Escrow aberto</span>';
-  if (status === 'escrowed') return '<span class="pay-skipped" title="Valor travado no contrato, ainda não liberado.">Em escrow</span>';
-  if (status === 'refunded') return 'Reembolsado';
-  if (status === 'failed') return `<span class="pay-failed" title="${detail}">Falhou</span>`;
-  if (status === 'skipped') return `<span class="pay-skipped" title="${detail}">Não enviado</span>`;
-  return 'Não';
+  if (status === 'executed') return 'Yes';
+  if (status === 'escrow_open') return '<span class="pay-skipped" title="Job created; waiting for the contractor to set the budget.">Escrow open</span>';
+  if (status === 'escrowed') return '<span class="pay-skipped" title="Amount locked in the contract, not released yet.">In escrow</span>';
+  if (status === 'refunded') return 'Refunded';
+  if (status === 'failed') return `<span class="pay-failed" title="${detail}">Failed</span>`;
+  if (status === 'skipped') return `<span class="pay-skipped" title="${detail}">Not sent</span>`;
+  return 'No';
 }
 
 function renderLedger(entries) {
   const body = document.getElementById('ledgerBody');
   if (entries.length === 0) {
-    body.innerHTML = '<tr><td colspan="7" class="empty">Nenhuma solicitação registrada ainda.</td></tr>';
+    body.innerHTML = '<tr><td colspan="7" class="empty">No requests recorded yet.</td></tr>';
     return;
   }
   body.innerHTML = entries.map(e => {
@@ -471,29 +471,29 @@ function milestoneButtons(m) {
   const chain = m.chain_status;  // null when the RPC read failed
   const buttons = [];
   if (m.escrow_status === 'open' || chain === 'Open') {
-    buttons.push(`<button data-ms="fund" data-id="${id}">Financiar</button>`);
+    buttons.push(`<button data-ms="fund" data-id="${id}">Fund</button>`);
   }
   if (m.demo_contractor && chain === 'Funded') {
-    buttons.push(`<button data-ms="deliver" data-id="${id}" title="Demo: assina como o contratado">Simular entrega</button>`);
+    buttons.push(`<button data-ms="deliver" data-id="${id}" title="Demo: signs as the contractor">Simulate delivery</button>`);
   }
   const canRelease = chain === 'Submitted';
-  buttons.push(`<button class="release" data-ms="release" data-id="${id}" ${canRelease ? '' : 'disabled'} title="${canRelease ? '' : 'Só é possível liberar depois que o contratado entregar.'}">Liberar pagamento</button>`);
-  buttons.push(`<button class="deny" data-ms="reject" data-id="${id}">Rejeitar e reembolsar</button>`);
+  buttons.push(`<button class="release" data-ms="release" data-id="${id}" ${canRelease ? '' : 'disabled'} title="${canRelease ? '' : 'Release is only possible after the contractor delivers.'}">Release payment</button>`);
+  buttons.push(`<button class="deny" data-ms="reject" data-id="${id}">Reject and refund</button>`);
   return buttons.join('');
 }
 
 function renderMilestones(items) {
   const el = document.getElementById('milestoneList');
   if (items.length === 0) {
-    el.innerHTML = '<p class="empty">Nenhum milestone em escrow.</p>';
+    el.innerHTML = '<p class="empty">No milestones in escrow.</p>';
     return;
   }
   el.innerHTML = items.map(m => {
     const r = m.request;
     const amount = m.reduced_amount ?? r.amount_usdc;
     const chain = m.chain_status
-      ? `na cadeia: ${escapeHtml(m.chain_status)}`
-      : `cadeia indisponível${m.chain_error ? ' (' + escapeHtml(m.chain_error) + ')' : ''}`;
+      ? `on chain: ${escapeHtml(m.chain_status)}`
+      : `chain unavailable${m.chain_error ? ' (' + escapeHtml(m.chain_error) + ')' : ''}`;
     return `
       <div class="pending-row" data-id="${escapeHtml(r.request_id)}">
         <div class="pending-main">
@@ -529,7 +529,7 @@ document.getElementById('pendingList').addEventListener('click', async (ev) => {
   if (!btn) return;
   const requestId = btn.dataset.id;
   const action = btn.dataset.action;
-  const reviewer = document.getElementById('reviewerName').value.trim() || 'operador';
+  const reviewer = document.getElementById('reviewerName').value.trim() || 'operator';
 
   const row = btn.closest('.pending-row');
   row.querySelectorAll('button').forEach(b => b.disabled = true);
@@ -547,14 +547,14 @@ document.getElementById('pendingList').addEventListener('click', async (ev) => {
       setTimeout(() => ledgerRow.classList.remove('flash'), 1200);
     }
   } catch (err) {
-    alert('Não foi possível registrar a decisão: ' + err.message);
+    alert('Could not record the decision: ' + err.message);
     row.querySelectorAll('button').forEach(b => b.disabled = false);
   }
 });
 
 const MILESTONE_CONFIRM = {
-  release: 'Liberar o pagamento ao contratado? Esta ação é definitiva.',
-  reject: 'Rejeitar o milestone e reembolsar o valor travado?',
+  release: 'Release the payment to the contractor? This action is final.',
+  reject: 'Reject the milestone and refund the locked amount?',
 };
 
 document.getElementById('milestoneList').addEventListener('click', async (ev) => {
@@ -562,11 +562,11 @@ document.getElementById('milestoneList').addEventListener('click', async (ev) =>
   if (!btn || btn.disabled) return;
   const action = btn.dataset.ms;
   if (MILESTONE_CONFIRM[action] && !confirm(MILESTONE_CONFIRM[action])) return;
-  const reviewer = document.getElementById('reviewerName').value.trim() || 'operador';
+  const reviewer = document.getElementById('reviewerName').value.trim() || 'operator';
 
   const row = btn.closest('.pending-row');
   row.querySelectorAll('button').forEach(b => b.disabled = true);
-  btn.textContent = 'Aguardando a blockchain…';
+  btn.textContent = 'Waiting for the blockchain…';
   try {
     await fetchJSON(`/api/milestones/${encodeURIComponent(btn.dataset.id)}/${action}`, {
       method: 'POST',
@@ -575,7 +575,7 @@ document.getElementById('milestoneList').addEventListener('click', async (ev) =>
     });
     await refresh();
   } catch (err) {
-    alert('Não foi possível concluir a ação: ' + err.message);
+    alert('Could not complete the action: ' + err.message);
     await refresh();
   }
 });
@@ -585,7 +585,7 @@ document.getElementById('newRequestForm').addEventListener('submit', async (ev) 
   const resultEl = document.getElementById('formResult');
   const submitBtn = ev.target.querySelector('button[type="submit"]');
   submitBtn.disabled = true;
-  resultEl.textContent = 'Processando…';
+  resultEl.textContent = 'Processing…';
 
   const payload = {
     request_id: 'ui-' + Date.now(),
@@ -602,11 +602,11 @@ document.getElementById('newRequestForm').addEventListener('submit', async (ev) 
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     });
-    resultEl.textContent = `Decisão: ${entry.decision} — ${entry.reason}`;
+    resultEl.textContent = `Decision: ${entry.decision} — ${entry.reason}`;
     ev.target.reset();
     await refresh();
   } catch (err) {
-    resultEl.textContent = 'Erro: ' + err.message;
+    resultEl.textContent = 'Error: ' + err.message;
   } finally {
     submitBtn.disabled = false;
   }

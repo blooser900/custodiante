@@ -306,7 +306,7 @@ def print_summary(rows: list, extra_ids: list[str]) -> None:
     discordant = [(sc, s) for sc, s in rows if sc.expected == "discordant"]
     if discordant:
         print("\nDiscordant scenarios -- the veto is calibrated here, one by one:")
-        print(f"  {'scenario':<38} {'trust':>6} {'FI':>7} {'natureza':>22}  {'o veto barraria?':>16}")
+        print(f"  {'scenario':<38} {'trust':>6} {'FI':>7} {'nature':>22}  {'would the veto block it?':>26}")
         for sc, s in discordant:
             fi = s.extra.get("fraud_indicators")
             nt = s.extra.get("natureza_transacao")
