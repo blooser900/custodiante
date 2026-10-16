@@ -1,8 +1,0 @@
-{
-  "request_id": "demo-approve",
-  "category": "contractor_milestone",
-  "amount_usdc": 500.0,
-  "requester": "contractor:known_vendor",
-  "description": "Milestone 1 of 2, verified complete, vendor has a clean payment history.",
-  "due_date": "2026-10-03T00:00:00Z"
-}

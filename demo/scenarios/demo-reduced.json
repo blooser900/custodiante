@@ -1,8 +1,0 @@
-{
-  "request_id": "demo-reduced",
-  "category": "operational_expense",
-  "amount_usdc": 450.0,
-  "requester": "ops-team",
-  "description": "Urgent renewal to avoid service interruption, vendor is new to the system.",
-  "due_date": "2026-09-29T00:00:00Z"
-}

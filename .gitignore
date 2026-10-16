@@ -61,3 +61,8 @@ htmlcov/
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# --- Generated demo output ---
+# Rewritten by demo/seed_scenarios.py on every run (demo/run_demo.sh calls it
+# first), so these are generated artifacts, not source.
+demo/scenarios/
