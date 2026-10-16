@@ -15,8 +15,12 @@ NOT covered here -- categories are validated by the RequestCategory enum in
 src/requests/schema.py, which is a data-model decision, not a tunable rule.
 """
 
+import contextlib
+import logging
 import math
+import os
 import re
+import tempfile
 from pathlib import Path
 from typing import Literal
 
@@ -24,6 +28,8 @@ import yaml
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from src.requests.schema import RequestCategory
+
+logger = logging.getLogger(__name__)
 
 CONFIG_PATH = Path(__file__).resolve().parent.parent / "config" / "rules.yaml"
 
@@ -436,10 +442,30 @@ def _default_config() -> RulesConfig:
 def load_config(path: Path = CONFIG_PATH) -> RulesConfig:
     """Load the rules config, creating config/rules.yaml with defaults if
     it doesn't exist yet (so there's always a real file to hand-edit).
+
+    Creating that file is a CONVENIENCE -- it exists so a human has something
+    to edit. On a filesystem that cannot be written (a container, Lambda, a
+    read-only volume) the write fails, and before this the failure propagated:
+    every request that reaches the policy layer, the engine or the API died
+    with a `PermissionError`/`FileNotFoundError` instead of running on the
+    defaults. The defaults are returned in memory either way; only the
+    hand-editability is lost, and that is worth a warning, not an outage.
+
+    A config file that EXISTS but cannot be read or parsed is a different
+    matter and still raises: that is a real misconfiguration, and quietly
+    substituting the shipped defaults would hide it.
     """
     if not path.exists():
         config = _default_config()
-        save_config(config, path)
+        try:
+            save_config(config, path)
+        except OSError:
+            logger.warning(
+                "Could not create %s; running on the in-memory defaults. The rules "
+                "cannot be inspected or hand-edited while this filesystem is read-only.",
+                path,
+                exc_info=True,
+            )
         return config
 
     with path.open(encoding="utf-8") as f:
@@ -448,11 +474,55 @@ def load_config(path: Path = CONFIG_PATH) -> RulesConfig:
 
 
 def save_config(config: RulesConfig, path: Path = CONFIG_PATH) -> None:
-    """Write the config back to YAML. Note: this does not preserve manual
-    comments in an existing file -- it's a full rewrite, not a patch.
+    """Write the config back to YAML, atomically.
+
+    Note: this does not preserve manual comments in an existing file -- it's a
+    full rewrite, not a patch.
+
+    ATOMIC because `load_config` runs on EVERY request (`apply_policy`, the
+    engine, the API) while this file is being replaced. The obvious
+    implementation -- `path.open("w")` then dump -- truncates the target before
+    writing a byte, so a kill, an OOM or a full disk inside that window leaves a
+    truncated file. A truncated file is not "the defaults": it fails
+    `RulesConfig.model_validate`, so every subsequent request would die. The
+    window is microseconds; the blast radius is the whole system.
+
+    So the new content is written to a scratch file in the SAME directory (same
+    filesystem, or `os.replace` would fail with a cross-device error), flushed
+    to disk, and then `os.replace`d over the target. `os.replace` is atomic on
+    POSIX and on Windows: a concurrent reader sees either the whole old file or
+    the whole new one, never a partial one.
     """
     path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8") as f:
-        yaml.safe_dump(
-            config.model_dump(), f, sort_keys=False, allow_unicode=True, width=100
-        )
+
+    # Carry over the existing file's permissions: os.replace keeps the SCRATCH
+    # file's mode, so without this a mode-600 config (a deliberate choice on a
+    # shared host) would silently become world-readable on the first save.
+    existing_mode = path.stat().st_mode & 0o777 if path.exists() else None
+
+    fd, scratch_name = tempfile.mkstemp(
+        dir=path.parent, prefix=f".{path.name}.", suffix=".tmp", text=True
+    )
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            yaml.safe_dump(
+                config.model_dump(), f, sort_keys=False, allow_unicode=True, width=100
+            )
+            # Flush through to the disk BEFORE the replace, so the rename cannot
+            # publish a file whose contents are still only in a buffer.
+            f.flush()
+            os.fsync(f.fileno())
+        if existing_mode is not None:
+            os.chmod(scratch_name, existing_mode)
+        else:
+            # A brand-new config: keep it owner-only. It can name wallets, and
+            # the process umask may well allow more than that.
+            os.chmod(scratch_name, 0o600)
+        os.replace(scratch_name, path)
+    except BaseException:
+        # Nothing was published, so the previous file is still in place. Remove
+        # the scratch file so a failed save does not accumulate litter, and let
+        # the original error through untouched: it is the actionable one.
+        with contextlib.suppress(OSError):
+            os.unlink(scratch_name)
+        raise

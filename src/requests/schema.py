@@ -25,7 +25,16 @@ class PaymentRequest(BaseModel):
 
     request_id: str = Field(..., description="Unique identifier for this request.")
     category: RequestCategory
-    amount_usdc: float = Field(..., gt=0, description="Requested amount, in USDC.")
+    # `allow_inf_nan=False` is part of the CONTRACT, not a per-route nicety:
+    # `inf` satisfies `gt=0`, so without this it survives validation here and
+    # only fails later -- inside a policy comparison or the escrow conversion.
+    # The requester route already refused it by setting the flag on its own
+    # model, which meant the manager route and the CLI accepted an amount that
+    # could never be paid. A value USDC cannot represent is refused once, at the
+    # edge, for every caller.
+    amount_usdc: float = Field(
+        ..., gt=0, allow_inf_nan=False, description="Requested amount, in USDC."
+    )
     requester: str = Field(..., description="Who or what is asking for this payment.")
     # Who is being PAID, when that is a different thing from who is asking. The
     # payee registry needs it: a request that redirects a vendor's payment to a

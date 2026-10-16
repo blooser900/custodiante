@@ -37,3 +37,8 @@ pythonpath = ["."]
 # A warning is not a failure, but an unraisable exception in a thread is how a
 # double-spend guard can die silently, so surface them loudly.
 filterwarnings = ["error::pytest.PytestUnhandledThreadExceptionWarning"]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+]

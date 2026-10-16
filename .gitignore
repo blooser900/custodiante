@@ -76,3 +76,18 @@ demo/scenarios/
 # edited per deployment. Machine-specific, so not versioned -- the defaults
 # live in src/config.py and the file is recreated on demand.
 config/rules.yaml
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+
+# Throwaway directories from running the suite and the toolchain. The pytest
+# basetemp in particular is created inside the workspace when the OS temp dir
+# is not usable, and it must never end up in a commit.
+.pyt*/
+.uvcache*/
+.backup-atual/
+uv-*.lock
+.commitmsg

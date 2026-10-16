@@ -173,6 +173,9 @@
 <script src="/ui/manager-auth.js"></script>
 <script>
 let config = null;
+// Problems found while reading the form, collected so the manager can fix them
+// all at once. Empty means the form is safe to send.
+let problems = [];
 
 const THRESHOLD_LABELS = {
   trust_min_auto_approve: ['Confiabilidade mínima para aprovação automática', 'Acima deste valor o pagamento é aprovado sem intervenção humana.'],
@@ -198,7 +201,7 @@ function renderLimits() {
     return `
     <div class="limit-row" data-category="${escapeHtml(category)}">
       <span class="row-label">${escapeHtml(category)}</span>
-      <input type="number" step="0.01" value="${limit.max_usdc}" data-field="limit" data-category="${escapeHtml(category)}" />
+      <input type="number" step="0.01" min="0" required value="${limit.max_usdc}" data-field="limit" data-category="${escapeHtml(category)}" />
       <label class="row-check" title="Desmarque para categorias em que pagar so uma parte nao faz sentido: a solicitacao vai para um humano em vez de ser aprovada com valor reduzido.">
         <input type="checkbox" ${reduced ? 'checked' : ''} data-field="allow-reduced" data-category="${escapeHtml(category)}" />
         aceita valor reduzido
@@ -217,7 +220,7 @@ function renderThresholds() {
           <div class="row-label">${escapeHtml(label)}</div>
           <div class="row-help">${escapeHtml(help)}</div>
         </div>
-        <input type="number" step="0.01" min="0" max="1" value="${value}" data-field="threshold" data-name="${name}" />
+        <input type="number" step="0.01" min="0" max="1" required value="${value}" data-field="threshold" data-name="${name}" />
       </div>`;
   }).join('');
 }
@@ -257,14 +260,43 @@ async function loadConfig() {
   }
 }
 
+// Read one numeric field strictly. `parseFloat(value) || 0` used to turn an
+// EMPTY or unparseable field into 0, and 0 passes the server's own validators:
+// clearing the "minimum reliability to approve automatically" box silently
+// saved 0, which is a policy that approves everything. There is no safe
+// default for a number the manager is responsible for, so a blank or invalid
+// field is reported and the save is refused instead of being guessed at.
+//
+// Every problem is collected rather than throwing on the first one: a manager
+// who cleared two boxes should see both, not fix one and meet the other.
+function readNumberField(input, label, { min = 0, max = null } = {}) {
+  const raw = String(input.value).trim();
+  const value = Number(raw);
+  if (raw === '' || !Number.isFinite(value)) {
+    problems.push(`${label}: informe um número.`);
+    return null;
+  }
+  if (value < min || (max !== null && value > max)) {
+    problems.push(`${label}: ${value} está fora da faixa permitida (${min} a ${max === null ? '∞' : max}).`);
+    return null;
+  }
+  return value;
+}
+
+function reportProblems() {
+  const statusEl = document.getElementById('saveStatus');
+  statusEl.className = 'save-status error';
+  statusEl.textContent = 'Nada foi salvo. ' + problems.join(' ');
+  problems = [];
+}
+
 function readFormIntoConfig() {
+  problems = [];
   document.querySelectorAll('input[data-field="limit"]').forEach(input => {
     const category = input.dataset.category;
     const existing = config.category_limits[category] || {};
-    config.category_limits[category] = {
-      ...existing,
-      max_usdc: parseFloat(input.value) || 0,
-    };
+    const value = readNumberField(input, `limite de ${category}`, { min: 0.000001 });
+    if (value !== null) config.category_limits[category] = { ...existing, max_usdc: value };
   });
   // The checkbox is a separate field of the same object, read on its own so a
   // missing element leaves the stored value alone instead of inventing false.
@@ -274,23 +306,42 @@ function readFormIntoConfig() {
     config.category_limits[category] = { ...existing, allow_reduced: input.checked };
   });
   document.querySelectorAll('input[data-field="threshold"]').forEach(input => {
-    config.thresholds[input.dataset.name] = parseFloat(input.value) || 0;
+    const label = (THRESHOLD_LABELS[input.dataset.name] || [input.dataset.name])[0];
+    const value = readNumberField(input, label, { min: 0, max: 1 });
+    if (value !== null) config.thresholds[input.dataset.name] = value;
   });
   document.querySelectorAll('textarea[data-field="level"]').forEach(ta => {
     config.criteria[ta.dataset.question][parseInt(ta.dataset.index)] = ta.value;
   });
+  return problems.length === 0;
 }
 
 document.getElementById('addCategoryBtn').addEventListener('click', () => {
   const nameInput = document.getElementById('newCategoryName');
   const amountInput = document.getElementById('newCategoryAmount');
   const name = nameInput.value.trim();
-  const amount = parseFloat(amountInput.value);
-  if (!name || isNaN(amount)) return;
+  const amount = Number(amountInput.value);
+  if (!name || amountInput.value.trim() === '' || !Number.isFinite(amount)) {
+    document.getElementById('saveStatus').className = 'save-status error';
+    document.getElementById('saveStatus').textContent =
+      'Informe um nome e um limite numérico para a nova categoria.';
+    return;
+  }
+  if (amount <= 0) {
+    // A non-positive ceiling would be refused by the server anyway; saying so
+    // here means the row is never rendered with a value that cannot be saved.
+    document.getElementById('saveStatus').className = 'save-status error';
+    document.getElementById('saveStatus').textContent =
+      'O limite de uma categoria precisa ser positivo.';
+    return;
+  }
   readFormIntoConfig();
+  problems = []; // the edit above is merged into `config`; nothing is pending
   config.category_limits[name] = { max_usdc: amount, allow_reduced: true };
   nameInput.value = '';
   amountInput.value = '';
+  document.getElementById('saveStatus').className = 'save-status';
+  document.getElementById('saveStatus').textContent = '';
   renderLimits();
 });
 
@@ -311,7 +362,12 @@ document.getElementById('rubricsList').addEventListener('click', (ev) => {
 document.getElementById('saveBtn').addEventListener('click', async () => {
   const statusEl = document.getElementById('saveStatus');
   const saveBtn = document.getElementById('saveBtn');
-  readFormIntoConfig();
+  if (!readFormIntoConfig()) {
+    // Never send a config we had to guess at: an empty field is a value the
+    // manager still has to decide, and the server would accept most guesses.
+    reportProblems();
+    return;
+  }
   saveBtn.disabled = true;
   statusEl.className = 'save-status';
   statusEl.textContent = 'Salvando…';

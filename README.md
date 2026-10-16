@@ -2,10 +2,12 @@
 
 An autonomous agent that receives payment requests (contractor milestones, supply
 purchases, operational expenses) and decides to **approve, approve with a reduced
-limit, or escalate to a human**, based on three calibrated scores: **confidence**,
-**urgency**, and **importance**.
+limit, or escalate to a human**, based on three calibrated scores: **trust**,
+**urgency**, and **importance**. Each score also carries a `confidence`, which is
+recorded and shown to managers but does not gate the decision -- see the note in
+`src/config.py` on the auto-approve rule it used to gate.
 
-See [`docs/spec-tameion-project.md`](docs/spec-tameion-project.md) for the full
+See [`docs/spec-projeto-tameion.md`](docs/spec-projeto-tameion.md) for the full
 technical spec (background, architecture, priorities, and demo requirements).
 
 ## Quick start
@@ -14,7 +16,7 @@ technical spec (background, architecture, priorities, and demo requirements).
 cp .env.example .env              # then add your CIRCLE_API_KEY
 uv sync --extra dev                # deps + pytest, exactly the locked versions
 python -m scripts.setup_arc_wallet --wait   # one-time: entity secret + Arc testnet wallet
-bash demo/run_demo.sh             # runs the 3 demo scenarios end to end
+python -m demo.run_demo           # runs the 3 demo scenarios end to end
                                   # (it also registers the two demo payees in the vendor
                                   #  registry, as a manager would: the payee check is ON by default)
 python -m pytest                  # unit tests (no credentials needed)
@@ -26,8 +28,21 @@ the same commit must decide the same way, or the audit log cannot be replayed.
 
 **If `pytest` fails with a `ModuleNotFoundError` for a Circle model**, run
 `python -m pytest tests/test_circle_sdk_available.py` first. It names the real
-problem instead of leaving the cryptic lazy-import error, and it is the fastest
-way to tell a broken SDK install apart from a code bug.
+problem instead of leaving the cryptic lazy-import error.
+
+**Before you reinstall anything, rule out a sandboxed file policy.** The SDK's
+`models/` directory is 107 files, and a tool that denies `os.stat`/`open` on some
+of them *by path* while `os.listdir` still lists them produces exactly the same
+`ModuleNotFoundError`. If the guard reports unreadable files, confirm the install
+is actually broken before touching it: compare two independent readers of the
+same file (Python vs. your shell), and check that the wheel in the uv cache
+contains the file and that the on-disk copy is the same size. A healthy install
+whose files read fine from a shell but not from Python is an environment policy,
+not a dependency problem — reinstalling will not change it. This cost one review
+round already; see A1/A2 in `docs/revisao-priorizada.md`.
+
+Also note that `pytest` is in the `dev` extra: `uv sync` alone does **not**
+install it, and the suite cannot run without `uv sync --extra dev`.
 
 ### One-time Arc testnet setup
 
@@ -452,6 +467,19 @@ reads it. Three ways to change it:
 Changes take effect immediately -- no restart needed, since the config is
 read fresh on every request.
 
+**The thresholds, and what each one does.** All six are in `config/rules.yaml`
+under `thresholds`, and each is a number in [0, 1] except
+`reduced_amount_fraction`, which is in (0, 1]:
+
+| Threshold | Effect |
+|---|---|
+| `trust_min_auto_approve` | At or above this trust, the request is approved without a human. |
+| `trust_min_to_consider` | Below this trust the request escalates immediately, before any other rule is tested. |
+| `importance_high` | At or above this importance, a request with only medium trust qualifies for a reduced approval. |
+| `urgency_high` | Same as `importance_high`, for urgency. Either one is enough. |
+| `reduced_amount_fraction` | The fraction of the category ceiling released in a reduced approval (0.5 = half). |
+| `fraud_veto_at` | At or above this probability of fraud, no automatic approval happens, whatever the trust score says. |
+
 **What the config refuses to save.** `RulesConfig` validates coherence, not just
 field ranges, because every one of these does something defensible per field and
 destructive in combination:
@@ -462,6 +490,32 @@ destructive in combination:
   2000 to 200 silently. `{}` is refused too. Negative and non-finite limits are
   refused, since a non-positive ceiling escalates every request in its category
   and looks like a policy decision rather than a typo.
+- **A ceiling must be money the wallet can actually back.** There is now an
+  upper bound as well: `src/policy/ceiling.py` compares every category limit
+  with the treasury's USDC balance (`get_balance()`), and `PUT /api/config` and
+  `manage_rules.py set-limit` both refuse a limit above it. The bound is
+  `min(max(balance, 1_000), 100_000)`:
+
+  | Wallet balance | Largest allowed category limit |
+  |---|---|
+  | 0 – 1,000 USDC | 1,000 USDC (the "not funded yet" floor) |
+  | 2,000 USDC | 2,000 USDC |
+  | 100,000 USDC or more | 100,000 USDC (stops tracking the balance) |
+
+  Without it, "auto-approve under the limit" stops being a control as soon as
+  the limit is above the funds: a 900,000 USDC ceiling against a 1,000 USDC
+  wallet used to be accepted. The practical consequence to expect: **a wallet
+  holding 500 USDC refuses the shipped 2,000 USDC `contractor_milestone`
+  ceiling** until you fund the wallet or lower the limit. That is the guard
+  working, not a bug.
+
+  **This check fails OPEN, and that is deliberate.** Reading the balance needs
+  credentials and the network, so if Circle cannot be reached the ceilings are
+  **not** checked and **any** limit is accepted — the CLI prints a warning and
+  the API logs one, but nothing is refused. A rules screen that refuses to save
+  because Circle is down would be uneditable exactly when someone needs it, and
+  this is a sanity guard rather than a security boundary. Stated plainly: the
+  control is only active while the wallet is reachable.
 - **`trust_min_to_consider` must be <= `trust_min_auto_approve`.** Otherwise the
   "always escalate" bar sits above the "approve alone" bar, and the policy
   contradicts itself while loading without complaint.

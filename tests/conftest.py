@@ -80,6 +80,40 @@ def isolate_pipeline_from_real_audit_log():
 
 
 @pytest.fixture(autouse=True)
+def isolate_writes_from_the_real_audit_log(tmp_path, monkeypatch):
+    """No test may WRITE to the developer's real data/audit_log.jsonl either.
+
+    The fixture above stops tests from READING a real log. It did not stop them
+    from APPENDING to one, and nothing caught that until `PUT /api/config`
+    started recording a config change (R2-09): `tests/test_api.py` then appended
+    a real `config_change` row to `data/audit_log.jsonl` on every run, and the
+    file grew until someone looked at it.
+
+    Redirecting the DEFAULT path covers every caller without touching the tests
+    that legitimately pass an explicit `path=`: `src/pipeline.append_entry`,
+    `src.audit.logger.record_config_change` and `src.audit.store.read_all_entries`
+    all resolve their default through `get_audit_log_path`.
+
+    A test that sets `AUDIT_LOG_PATH` ITSELF still wins -- and has to, because
+    `test_log_path_is_resolved_at_call_time_not_import_time` exists precisely to
+    check that an environment value set after import is honoured. So the real
+    resolution logic is reused whenever the variable is set, and only the
+    fallback is redirected.
+    """
+    import os
+
+    def isolated_path() -> str:
+        configured = os.environ.get("AUDIT_LOG_PATH", "").strip()
+        if configured:
+            # A test asked for a specific path: honour it exactly as production
+            # would, so the behaviour under test is the real one.
+            return configured
+        return str(tmp_path / "audit_log.jsonl")
+
+    monkeypatch.setattr("src.audit.store.get_audit_log_path", isolated_path)
+
+
+@pytest.fixture(autouse=True)
 def isolate_config_file():
     """Keep every default-path `load_config()` off the real config/rules.yaml.
 

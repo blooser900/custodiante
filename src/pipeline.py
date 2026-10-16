@@ -17,12 +17,13 @@ from dotenv import load_dotenv
 # import time.
 load_dotenv()
 
-from src.audit.logger import AuditEntry, FailedAttempt, build_entry
+from src.audit.logger import AuditEntry, FailedAttempt, _current_config_snapshot, build_entry
 from src.audit.store import append_entry, read_latest_per_request
-from src.decision_engine.engine import DecisionEngine
+from src.decision_engine.engine import DecisionEngine, DecisionScores, Evidence, ScoreResult
 from src.decision_engine.fallback_classifier import TypeSafeCompatibleEngine
 from src.decision_engine.jev_client import JevDecisionEngine
 from src.decision_engine.mock_engine import MockDecisionEngine
+from src.decision_engine.system_one import EngineResponseError
 from src.history import compute_history
 from src.money import parse_usdc
 from src.payments.arc_client import (
@@ -289,11 +290,26 @@ def _in_flight(existing: AuditEntry | None) -> bool:
 
 
 def _latest_for(entries: list[AuditEntry], request_id: str) -> AuditEntry | None:
-    """The newest row of `request_id`, whatever order `entries` arrived in."""
+    """The newest row of `request_id` among `entries`.
+
+    Newest means the timestamp; a TIE is broken by position in `entries`, with
+    the LAST matching row winning. That assumes the caller's list is in log
+    order or newest-first -- either way the relevant row is the one its order
+    puts last among equals. That tie-break
+    is not cosmetic. An approved payment writes two rows with no delay between
+    them -- the pending row carrying the in-flight marker, then its outcome --
+    and when the clock is coarser than those two writes they share a timestamp.
+    `max()` over the timestamp alone then returned whichever row came first, so
+    a legitimately PAID request resolved to its own pending row, `_in_flight`
+    read it as money still in the air, and the only way forward was a manual
+    reconciliation.
+    """
     mine = [e for e in entries if e.request.request_id == request_id]
     if not mine:
         return None
-    return max(mine, key=lambda e: e.timestamp)
+    return max(
+        enumerate(mine), key=lambda pair: (pair[1].timestamp, pair[0])
+    )[1]
 
 
 def _attempt_description(request: PaymentRequest, amount_usdc: float) -> str:
@@ -446,7 +462,22 @@ def run_pipeline(
             request = request.model_copy(update={"submitted_at": datetime.now(timezone.utc)})
         # What the system has recorded about this requester and destination.
         history = compute_history(request, entries)
-        scores = engine.score(request, history=history)
+        try:
+            scores = engine.score(request, history=history)
+        except EngineResponseError as e:
+            # The engine answered, and its answer cannot be used. No decision
+            # was made and no money can move, but the attempt is still an event
+            # a reviewer needs to see: this system's claim is that the log
+            # explains every decision, and "the engine returned garbage at
+            # 14:02" is part of that story. Recording it also means the row
+            # exists when someone asks why a request never came back.
+            #
+            # Deliberately only THIS error: an unexpected exception (a bug, an
+            # exhausted retry, an untyped engine failure) is not recorded,
+            # because guessing a decision field for it could put a misleading
+            # row in the chain. Those keep failing loudly, which is correct.
+            _record_failed_scoring(request, entries, engine, e)
+            raise
         # Who may be paid where: the registry from config, taught by the log.
         # Built per request from the entries already in hand, so a payee that
         # has been paid successfully before is known without anyone typing it in.
@@ -540,11 +571,31 @@ def apply_human_override(
                 f"Request {request.request_id!r} was already {current.human_review} "
                 f"by {current.reviewer!r}."
             )
+        # Only an ESCALATED request can be overridden: that is the entire point
+        # of escalating. Before this guard, calling `apply_human_override` on a
+        # request the policy had already approved re-approved it and paid the
+        # FULL requested amount -- measured at 50,000 USDC against a 1,000 USDC
+        # category ceiling. The escalation route checks the decision before it
+        # calls in, but this is the function that releases money above the
+        # policy's limits, so the check belongs here too: a caller that forgets
+        # it (a script, the CLI, a future route) must not be able to overrule a
+        # decision the policy already made.
+        if current is not None and current.decision in ("approve", "approve_reduced"):
+            raise AlreadyReviewedError(
+                f"Request {request.request_id!r} was already decided by the policy "
+                f"({current.decision!r}, {current.reason!r}); there is nothing for a "
+                "human to override here."
+            )
 
         past_tense = {"approve": "approved", "deny": "denied"}[action]
         reason = f"Escalated request {past_tense} by human reviewer ({reviewer})."
 
         def human_entry(**overrides) -> AuditEntry:
+            # The rules in force for the human's decision (R2-09). Read fresh
+            # rather than inherited from `original_entry`: a human may be
+            # overriding on a later day, under rules that have since changed,
+            # and this row has to say which ones were in force for THIS act.
+            snapshot, fingerprint = _current_config_snapshot()
             fields = dict(
                 timestamp=datetime.now(timezone.utc).isoformat(),
                 request=request,
@@ -557,6 +608,8 @@ def apply_human_override(
                 reviewer=reviewer,
                 engine_name=original_entry.engine_name,
                 payment_status="not_applicable",
+                config_snapshot=snapshot,
+                config_hash=fingerprint,
             )
             fields.update(overrides)
             return AuditEntry(**fields)
@@ -854,6 +907,73 @@ def _record_failed_attempt(current: AuditEntry, action: str, reviewer: str, erro
         append_entry(entry)
     except Exception:  # noqa: BLE001
         logger.exception("Could not record the failed %s attempt for %s", action, current.request.request_id)
+
+
+def _record_failed_scoring(
+    request: PaymentRequest,
+    entries: list[AuditEntry],
+    engine,
+    error: EngineResponseError,
+) -> None:
+    """Append the fact that the engine could not answer, best effort.
+
+    There is no decision to log, so the row carries `decision="error"` and the
+    cause in `failed_attempt` -- the same shape the escrow path uses for an
+    action that was tried and failed. `payment_status` stays
+    "not_applicable": nothing was sent, and claiming otherwise would be worse
+    than saying nothing.
+
+    Two safeguards, matching `_record_failed_attempt`:
+
+    - A repeat of a failure already on top of the log for this request is not
+      appended again, so a caller cannot grow the hash-chained log without
+      bound by resubmitting the same broken request.
+    - Writing this must never hide the real error: if the append itself fails,
+      that is reported through `logging` and the engine's error still reaches
+      the caller.
+
+    The row is NOT built from an existing entry (there is none for a first
+    attempt), so `scores` is empty: the engine did not produce any, and
+    inventing zeros would look like a decision.
+    """
+    text = (str(error) or type(error).__name__)[:_MAX_ERROR_CHARS]
+    previous = _latest_for(entries, request.request_id)
+    if previous is not None and previous.failed_attempt is not None:
+        if previous.failed_attempt.action == "score" and previous.failed_attempt.error == text:
+            return
+
+    placeholder = ScoreResult(value=0.0, confidence=0.0)
+    entry = AuditEntry(
+        timestamp=datetime.now(timezone.utc).isoformat(),
+        request=request,
+        scores=DecisionScores(
+            trust=placeholder,
+            urgency=placeholder,
+            importance=placeholder,
+            evidence=Evidence(
+                model=_engine_name(engine),
+                state={},
+                answers={},
+                problems=[text],
+            ),
+        ),
+        decision="error",
+        reduced_amount=None,
+        reason=(
+            f"The decision engine could not be used for this request, so no decision was "
+            f"made and no payment was attempted. {text}"
+        ),
+        payment_executed=False,
+        payment_status="not_applicable",
+        engine_name=_engine_name(engine),
+        failed_attempt=FailedAttempt(action="score", error=text),
+    )
+    try:
+        append_entry(entry)
+    except Exception:  # noqa: BLE001
+        logger.exception(
+            "Could not record the failed scoring attempt for %s", request.request_id
+        )
 
 
 def advance_milestone(

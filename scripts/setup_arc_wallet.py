@@ -222,7 +222,7 @@ def main() -> int:
         wait_for_funds(client, wallet_id)
 
     print("\nDone. Next: re-run the demo with real payments enabled:")
-    print("    bash demo/run_demo.sh")
+    print("    python -m demo.run_demo")
     return 0
 
 

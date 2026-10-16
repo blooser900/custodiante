@@ -14,6 +14,7 @@ policy layer's thresholds to be exercised.
 """
 
 import math
+import re
 from datetime import datetime, timezone
 
 from src.config import QuestionSpec, load_config
@@ -41,7 +42,17 @@ def _snap(value: float) -> float:
 
 
 def _count_hits(text: str, keywords: tuple[str, ...]) -> int:
-    return sum(1 for keyword in keywords if keyword in text)
+    """How many of `keywords` appear in `text` as whole words.
+
+    Whole words, not substrings. A plain `keyword in text` made
+    `unknown_requester` match the keyword `unknown` -- the requester's own name
+    read as a red flag about the requester, which is exactly the kind of
+    coincidence a keyword engine must not turn into a fraud score. Text here is
+    already lowercased.
+    """
+    return sum(
+        1 for keyword in keywords if re.search(rf"\b{re.escape(keyword)}\b", text)
+    )
 
 
 def _concentration(probabilities: list[float]) -> float:
@@ -120,7 +131,11 @@ class MockDecisionEngine(DecisionEngine):
                     attempts += party.attempts
 
         fraud = 0.04
-        if any(k in text for k in _TRUST_NEGATIVE):
+        # Whole words, via the same helper the trust score uses. This was a raw
+        # `k in text`, so the requester's own name (`unknown_requester`) matched
+        # the `unknown` keyword and pushed P(fraud) to 0.89 -- past the 0.70 veto
+        # -- for a request whose only problem was having no history.
+        if _count_hits(text, _TRUST_NEGATIVE):
             fraud += 0.7
         if no_destination:
             fraud += 0.15

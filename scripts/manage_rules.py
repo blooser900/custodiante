@@ -1,6 +1,11 @@
 """CLI to view and edit config/rules.yaml -- category limits, policy
 thresholds, and scoring rubrics -- without touching Python code.
 
+Category limits are bounded by the funds the wallet actually holds, and that
+check FAILS OPEN: if the balance cannot be read, a limit above the funds is
+accepted. `show` prints which of the two states the check is in, so the state of
+this control is never a guess. See src/policy/ceiling.py.
+
 Usage:
     python -m scripts.manage_rules show
     python -m scripts.manage_rules set-limit operational_expense 800
@@ -14,6 +19,7 @@ Usage:
 
 import argparse
 import getpass
+import logging
 import os
 import subprocess
 import sys
@@ -29,16 +35,42 @@ from src.config import (
     load_config,
     save_config,
 )
+from src.policy.ceiling import (
+    LimitAboveCeilingError,
+    check_limits_against_balance,
+    require_limits_within_balance,
+)
 
 
 def cmd_show(args: argparse.Namespace) -> int:
+    # The balance check logs a warning when it cannot read the wallet, and this
+    # command prints that state in its own section below -- with the reason. The
+    # log line would be the same sentence twice, and its traceback is noise on a
+    # screen meant to be read.
+    logging.getLogger("src.policy.ceiling").setLevel(logging.ERROR)
+
     config = load_config()
     print(f"Config file: {CONFIG_PATH}\n")
 
-    print("Category limits (USDC):")
+    print("\nCategory limits (USDC):")
     for category, limit in config.category_limits.items():
         part = "part payment allowed" if limit.allow_reduced else "must be paid whole"
         print(f"  {category:<22} {limit.max_usdc:<10} {part}")
+
+    # The limits above are bounded by the funds available, and that check fails
+    # open when Circle cannot be reached -- so the state of the check is printed
+    # rather than left for an operator to discover. See src/policy/ceiling.py.
+    check = check_limits_against_balance(config)
+    print("\nLimit ceiling (the funds available):")
+    if check.checked:
+        state = "OK" if check.ok else "VIOLATED"
+        print(f"  {state} -- {check.detail}")
+        if not check.ok:
+            print("  Lower the limits above, or fund the wallet. Saving is refused until then.")
+    else:
+        print("  NOT CHECKED -- the wallet balance could not be read, so the limits above")
+        print("  are unverified: a limit larger than the funds available will be accepted.")
+        print(f"  Reason: {check.detail}")
 
     print("\nPayee check:")
     if config.require_known_payee:
@@ -86,6 +118,17 @@ def cmd_set_limit(args: argparse.Namespace) -> int:
         max_usdc=args.amount,
         allow_reduced=existing.allow_reduced if existing else args.category not in CATEGORIES_PAID_WHOLE,
     )
+    # R2-09: a ceiling above the funds available is not a limit. Same rule the
+    # API enforces, and it fails open when the balance cannot be read -- see
+    # src/policy/ceiling.py -- so an unreachable Circle does not make the rules
+    # uneditable.
+    try:
+        check = require_limits_within_balance(config)
+    except LimitAboveCeilingError as e:
+        print(f"Refused: {e}", file=sys.stderr)
+        return 1
+    if not check.checked:
+        print(f"Warning: {check.detail}", file=sys.stderr)
     save_config(config)
     print(f"Set limit for {args.category!r} to {args.amount} USDC.")
     return 0
@@ -172,9 +215,20 @@ def _current_user() -> str | None:
         return None
 
 
+def _default_editor() -> str:
+    """The editor to open when $EDITOR is not set.
+
+    `nano` is a reasonable default on Linux and does not exist on a stock
+    Windows install, where the command failed with "not recognized" -- on the
+    platform this project is actually developed on. $EDITOR still wins when it
+    is set, so anyone with a preference keeps it.
+    """
+    return "notepad" if os.name == "nt" else "nano"
+
+
 def cmd_edit(args: argparse.Namespace) -> int:
     load_config()  # ensure the file exists before opening it
-    editor = os.environ.get("EDITOR", "nano")
+    editor = os.environ.get("EDITOR") or _default_editor()
     subprocess.run([editor, str(CONFIG_PATH)])
     return cmd_validate(args)
 

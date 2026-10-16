@@ -26,10 +26,12 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from src.audit.store import read_latest_per_request
 from src.auth import access_code_required, require_manager, require_requester_access
+from src.audit.logger import record_config_change
 from src.audit.verify import verify_chain
 from src.config import RulesConfig, load_config, save_config
 from src.money import InvalidAmountError, parse_usdc, sum_usdc
 from src.payments.escrow import ChainReader, EscrowError
+from src.policy.ceiling import LimitAboveCeilingError, require_limits_within_balance
 from src.pipeline import (
     AlreadyReviewedError,
     DuplicateRequestError,
@@ -122,18 +124,62 @@ def get_config() -> dict:
     return load_config().model_dump()
 
 
+def _config_actor(request: Request) -> str:
+    """Who changed the rules, for the audit entry.
+
+    Alpha scope: one shared manager token, so there is no per-user identity to
+    read. The best available answer is an explicit header, falling back to the
+    client address -- an operator can say who they are, and if they do not, the
+    entry still records that *someone* with the token changed the rules from
+    that address. When the token becomes per-user, only this function changes.
+    """
+    declared = request.headers.get("X-Operator", "").strip()
+    if declared:
+        return declared[:100]
+    return f"manager@{request.client.host if request.client else 'unknown'}"
+
+
 @manager.put("/api/config")
-def update_config(config: RulesConfig) -> dict:
+def update_config(config: RulesConfig, request: Request) -> dict:
     # RulesConfig's own validators (threshold ranges, 2-10 rubric levels)
     # already ran by the time FastAPI builds this parameter -- an invalid
     # body never reaches here, it gets a 422 automatically.
+    #
+    # R2-09: the change goes into the audit log, with BOTH versions, BEFORE it
+    # is persisted. A log that records every payment but not the rule change
+    # that made the payment legal is auditing the wrong thing, and recording it
+    # first means a crash during the save still leaves the intent on the log.
+    #
+    # The ceiling check (R2-09, second half) is the last thing before the write:
+    # a category limit above the funds available is not a limit. It fails open
+    # when the balance cannot be read -- see src/policy/ceiling.py -- so an
+    # unreachable Circle never makes the rules uneditable.
+    try:
+        require_limits_within_balance(config)
+    except LimitAboveCeilingError as e:
+        raise HTTPException(status_code=422, detail=str(e)) from e
+
+    before = load_config()
+    record_config_change(before, config, actor=_config_actor(request))
     save_config(config)
     return config.model_dump()
 
 
+def _payment_requests() -> list:
+    """The log's per-request view, minus events that are not requests.
+
+    A config change (R2-09) lives in the same chain and therefore in the same
+    per-request view, keyed by its own id. It is an audit event, not a payment
+    request: counting it as one would inflate `total_requests` and could put it
+    in the escalation queue. The exclusion is explicit and in one place so a
+    future event type has one thing to update.
+    """
+    return [e for e in read_latest_per_request() if e.decision != "config_change"]
+
+
 @manager.get("/api/stats")
 def stats() -> dict:
-    entries = read_latest_per_request()
+    entries = _payment_requests()
     pending = [e for e in entries if e.decision == "escalate" and e.human_review is None]
     paid_total = sum_usdc(
         (e.reduced_amount or e.request.amount_usdc) for e in entries if e.payment_executed
@@ -181,12 +227,12 @@ def verify_audit_log() -> dict:
 
 @manager.get("/api/requests/latest")
 def latest_requests() -> list[dict]:
-    return [e.model_dump() for e in read_latest_per_request()]
+    return [e.model_dump() for e in _payment_requests()]
 
 
 @manager.get("/api/escalations/pending")
 def pending_escalations() -> list[dict]:
-    entries = read_latest_per_request()
+    entries = _payment_requests()
     pending = [e for e in entries if e.decision == "escalate" and e.human_review is None]
     return [e.model_dump() for e in pending]
 
