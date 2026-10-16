@@ -58,6 +58,45 @@ A `request_id` is processed at most once: resubmitting it returns HTTP 409
 from both approving one escalation. Use a fresh `request_id` per payment;
 `demo.seed_scenarios` stamps a new suffix on each run for this reason.
 
+### On-chain escrow (contractor milestones) -- IN PROGRESS
+
+`src/payments/escrow.py` drives the ERC-8183 job contract that Arc already
+deploys on testnet (no Solidity of our own). Our treasury is the client and
+evaluator; the contractor is the provider. Funds are locked in the contract
+on `fund` and released only when we `complete` the job, or refunded on
+`reject` / `claimRefund`.
+
+Safety property: the contractor sets the job's budget, so it is untrusted.
+`fund` compares it to the amount the policy approved and refuses to send any
+transaction on a mismatch; it also approves exactly that amount, never more.
+
+**Status:** the client is implemented and unit-tested against fakes. It has
+NOT yet been run on the real testnet, and it is NOT yet wired into the
+pipeline or dashboard. `reject` and `claimRefund` follow the ERC-8183 draft
+and are unverified on the deployed contract. Validate with:
+
+```bash
+python -m scripts.escrow_smoke --scenario happy    # also: reject, expire
+```
+
+(needs `ESCROW_PROVIDER_WALLET_ADDRESS`: a second wallet you control, with a
+little testnet USDC for gas).
+
+### Tamper-evident audit log
+
+`data/audit_log.jsonl` is hash-chained: each line stores `prev_hash` and an
+`entry_hash` (SHA-256 of its own content). Editing, deleting, or reordering
+any past line breaks the chain from that point on.
+
+```bash
+python -m src.audit.verify           # exit 0 = intact, 1 = tampered
+```
+
+The dashboard shows the same check live, and `GET /api/audit/verify` exposes
+it. Known limit: removing lines from the *end* of the file cannot be detected
+by the chain alone; closing that needs the latest `entry_hash` anchored
+somewhere the log's owner cannot rewrite (e.g. on-chain).
+
 ### Debugging the decision engine
 
 `python -m demo.seed_scenarios && python -m demo.inspect_scores demo/scenarios/demo-approve.json`
@@ -130,7 +169,8 @@ used by the CLI -- there's exactly one implementation of the decision logic.
   builders in `criteria.py`.
 - `src/policy/` — deterministic rules and hard limits. This is the "contract" that
   the decision engine's scores are checked against; the engine cannot bypass it.
-- `src/payments/` — Circle/Arc integration and escrow-style conditional release.
+- `src/payments/` — Circle/Arc integration: `arc_client.py` (plain USDC transfers)
+  and `escrow.py` (on-chain milestone escrow, see below).
 - `src/audit/` — append-only decision log (also the source for reports and the
   dashboard).
 - `src/pipeline.py` — the request -> decision -> payment flow, shared by the CLI
