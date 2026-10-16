@@ -185,7 +185,7 @@ def test_the_summary_shows_the_discordant_scenarios_one_by_one(out, mock_engine,
     cs.main(["--out", str(out)])
     text = capsys.readouterr().out
     assert "Discordant scenarios" in text
-    assert "o veto barraria?" in text
+    assert "would the veto block it?" in text
     # Every discordant scenario must appear by name, not just in a mean.
     for scenario in cs.SCENARIOS:
         if scenario.expected == "discordant":
