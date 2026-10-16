@@ -6,6 +6,7 @@ on camera (one auto-approve, one reduced approval, one escalation).
 """
 
 import json
+import secrets
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -38,7 +39,21 @@ SCENARIOS = [
         "category": "supply_purchase",
         "amount_usdc": 5000.0,
         "requester": "unknown_requester",
-        "description": "Large one-off purchase with no prior history and vague justification.",
+        # Deliberately free of the mock's `_TRUST_NEGATIVE` keywords. It used to
+        # read "no prior history and vague justification", and that -- together
+        # with the missing wallet -- pushed the mock's P(fraud) to 0.89, past the
+        # 0.70 veto, so the reason shown on screen was "Fraud indicators vetoed
+        # automatic approval" while every document described this scenario as a
+        # request with no history. Naming fraud is a far stronger claim than the
+        # scenario makes, and the reason is the whole point of showing it.
+        #
+        # What actually escalates it is the amount: 5000 USDC is above the 1000
+        # USDC ceiling for `supply_purchase`, checked before trust or payee. That
+        # is a documented rule and a good thing to put on camera.
+        "description": (
+            "Large one-off purchase from a supplier this company has not paid before, "
+            "with a brief justification."
+        ),
         "due_date": None,
     },
 ]
@@ -78,6 +93,31 @@ def register_demo_payees() -> list[str]:
     return added
 
 
+def _unique_run_suffix() -> str:
+    """A suffix that cannot collide with a run already sitting on disk.
+
+    It used to be `time.strftime("%m%d-%H%M%S")`, which has one-second
+    resolution: two runs in the same second -- which is what happens when
+    `run_demo` is re-run immediately after a failure, or when a script drives
+    it twice -- produced the SAME request_ids. The pipeline refuses a request_id
+    it has already decided, so the second run died with DuplicateRequestError and
+    the audit log (which is append-only and never pruned) kept the first one.
+
+    A random tag removes the practical risk; the loop removes it entirely by
+    checking the files this directory already holds, so a collision is
+    impossible rather than merely unlikely.
+    """
+    stamp = time.strftime("%m%d-%H%M%S")
+    SCENARIOS_DIR.mkdir(parents=True, exist_ok=True)
+    for tag in [secrets.token_hex(3), *(f"{n:02d}" for n in range(100))]:
+        suffix = f"{stamp}-{tag}"
+        if not any(f"-{suffix}" in p.read_text(encoding="utf-8") for p in SCENARIOS_DIR.glob("*.json")):
+            return suffix
+    raise RuntimeError(
+        f"Could not find an unused run suffix in {SCENARIOS_DIR}; remove stale scenario files."
+    )
+
+
 def write_scenarios() -> None:
     """Write one JSON file per scenario.
 
@@ -86,8 +126,7 @@ def write_scenarios() -> None:
     to process the same request_id twice, so without this the demo could
     only be run once per audit log.
     """
-    run_suffix = time.strftime("%m%d-%H%M%S")
-    SCENARIOS_DIR.mkdir(parents=True, exist_ok=True)
+    run_suffix = _unique_run_suffix()
     for scenario in SCENARIOS:
         path = SCENARIOS_DIR / f"{scenario['request_id']}.json"
         unique = {**scenario, "request_id": f"{scenario['request_id']}-{run_suffix}"}
