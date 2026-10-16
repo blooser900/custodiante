@@ -6,14 +6,34 @@ on camera (one auto-approve, one reduced approval, one escalation).
 """
 
 import json
+import os
 import secrets
 import time
 from datetime import datetime, timezone
 from pathlib import Path
 
+from dotenv import load_dotenv
+
+# Must run before the wallet below is resolved. This module is imported by
+# run_demo.py and by tests without the pipeline, which is what usually loads
+# .env; without it here, ESCROW_PROVIDER_WALLET_ADDRESS would be invisible.
+load_dotenv()
+
 from src.config import VendorRegistration, load_config, save_config
 
 SCENARIOS_DIR = Path(__file__).parent / "scenarios"
+
+# The wallet the demo pays. `.env` is the primary source: whoever clones this
+# points ESCROW_PROVIDER_WALLET_ADDRESS at a wallet they control, and the demo
+# pays there instead. The fallback is the conventional burn address -- well
+# formed, and owned by nobody, so an unconfigured demo cannot send testnet USDC
+# to a stranger by accident.
+#
+# Resolved once, and everything derives from this single value: the scenarios'
+# counterparty_wallet and the payee registration MUST agree, or the payee check
+# would escalate a scenario the demo means to approve.
+BURN_ADDRESS = "0x000000000000000000000000000000000000dEaD"
+DEMO_WALLET = os.environ.get("ESCROW_PROVIDER_WALLET_ADDRESS", "").strip() or BURN_ADDRESS
 
 SCENARIOS = [
     {
@@ -23,7 +43,7 @@ SCENARIOS = [
         "requester": "contractor:known_vendor",
         "description": "Milestone 1 of 2, verified complete, vendor has a clean payment history.",
         "due_date": "2026-10-03T00:00:00Z",
-        "counterparty_wallet": "0x0000000000000000000000000000000000dEaD",
+        "counterparty_wallet": DEMO_WALLET,
     },
     {
         "request_id": "demo-reduced",
@@ -32,7 +52,7 @@ SCENARIOS = [
         "requester": "ops-team",
         "description": "Urgent renewal to avoid service interruption, vendor is new to the system.",
         "due_date": "2026-09-29T00:00:00Z",
-        "counterparty_wallet": "0x0000000000000000000000000000000000dEaD",
+        "counterparty_wallet": DEMO_WALLET,
     },
     {
         "request_id": "demo-escalate",
@@ -66,8 +86,8 @@ SCENARIOS = [
 # `demo-escalate` names an unknown requester and no wallet on purpose: it is the
 # scenario that shows the check doing its job.
 DEMO_PAYEES = {
-    "contractor:known_vendor": "0x0000000000000000000000000000000000dEaD",
-    "ops-team": "0x0000000000000000000000000000000000dEaD",
+    "contractor:known_vendor": DEMO_WALLET,
+    "ops-team": DEMO_WALLET,
 }
 
 

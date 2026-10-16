@@ -48,6 +48,7 @@ from src.payments.arc_client import (
     POLL_INTERVAL_SECONDS,
     POLL_TIMEOUT_SECONDS,
     TERMINAL_STATES,
+    is_evm_address,
 )
 
 # AgenticCommerce reference implementation on Arc Testnet (from the quickstart).
@@ -244,6 +245,7 @@ class EscrowClient:
         """Open a job. Returns (job_id, transaction info)."""
         if provider_wallet.lower() == self.treasury.lower():
             raise EscrowError("The provider cannot be the treasury wallet itself.")
+        self._require_valid_address(provider_wallet, "The provider wallet")
         expired_at = self.reader.latest_timestamp() + expires_in_seconds
         tx = self._execute(
             self.treasury,
@@ -333,6 +335,7 @@ class EscrowClient:
     # exist so a demo can play both sides with a second wallet we own.
 
     def set_budget(self, job_id: int, amount_usdc: float, provider_wallet: str) -> dict:
+        self._require_valid_address(provider_wallet, "The provider wallet")
         job = self.get_job(job_id)
         self._require_status(job, ("Open",), "set the budget of")
         return self._execute(
@@ -344,6 +347,7 @@ class EscrowClient:
         )
 
     def submit(self, job_id: int, deliverable: str, provider_wallet: str) -> dict:
+        self._require_valid_address(provider_wallet, "The provider wallet")
         job = self.get_job(job_id)
         self._require_status(job, ("Funded",), "submit work for")
         return self._execute(
@@ -361,6 +365,25 @@ class EscrowClient:
         if job.status not in allowed:
             raise EscrowError(
                 f"Cannot {action} job {job.job_id}: it is {job.status}, expected {' or '.join(allowed)}."
+            )
+
+    @staticmethod
+    def _require_valid_address(address: str, label: str) -> None:
+        """Refuse a wallet that cannot be an address, before any API call.
+
+        The same structural check a plain transfer applies (see
+        arc_client.is_evm_address). Escrow is the default path for contractor
+        milestones, so without this the one category that has a validator on
+        the direct-transfer path would be the one that skips it, and a
+        malformed address would reach Circle and only fail a round trip later.
+
+        Raises EscrowError rather than ValueError so callers that already catch
+        the escrow error type do not need a second except clause.
+        """
+        if not is_evm_address(address):
+            raise EscrowError(
+                f"{label} {address!r} is not a well-formed EVM address "
+                "(expected 0x followed by 40 hex characters)."
             )
 
     def _require_client(self, job: EscrowJob) -> None:

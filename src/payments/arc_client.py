@@ -31,6 +31,15 @@ ARC_TESTNET_USDC_ADDRESS = "0x3600000000000000000000000000000000000000"
 _EVM_ADDRESS_RE = re.compile(r"^0x[0-9a-fA-F]{40}$")
 
 
+def is_evm_address(value: str) -> bool:
+    """Structural check only: 0x followed by exactly 40 hex characters.
+
+    Public because the escrow path validates the same way a plain transfer
+    does, and a second copy of this rule would be a second thing to get wrong.
+    """
+    return bool(_EVM_ADDRESS_RE.match(value))
+
+
 def _validate_destination(destination_wallet: str, source_wallet: str) -> None:
     """Reject a transfer before it reaches Circle's API if it's clearly wrong.
 
@@ -40,7 +49,7 @@ def _validate_destination(destination_wallet: str, source_wallet: str) -> None:
     transfer being visible on the public explorer afterwards, which makes
     it a dangerous silent no-op for a payment-approval system to allow.
     """
-    if not _EVM_ADDRESS_RE.match(destination_wallet):
+    if not is_evm_address(destination_wallet):
         raise ValueError(
             f"'{destination_wallet}' is not a well-formed EVM address "
             "(expected 0x followed by 40 hex characters)."
