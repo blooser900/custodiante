@@ -52,6 +52,7 @@ pip-wheel-metadata/
 htmlcov/
 .tox/
 .nox/
+*.pyc
 
 # --- Editors and OS ---
 .idea/
