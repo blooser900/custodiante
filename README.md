@@ -7,8 +7,10 @@ limit, or escalate to a human**, based on three calibrated scores: **trust**,
 recorded and shown to managers but does not gate the decision -- see the note in
 `src/config.py` on the auto-approve rule it used to gate.
 
-See [`docs/spec-projeto-tameion.md`](docs/spec-projeto-tameion.md) for the full
-technical spec (background, architecture, priorities, and demo requirements).
+See [`docs/spec-tameion-project.md`](docs/spec-tameion-project.md) for the full
+technical spec (background, architecture, priorities, and demo requirements),
+and [`docs/TODO.md`](docs/TODO.md) for the roadmap: the work deliberately
+deferred past the hackathon and the gaps still open in the current behaviour.
 
 ## Quick start
 
