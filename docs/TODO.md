@@ -3,10 +3,11 @@
 Work that is deliberately deferred, plus gaps found in the current behaviour.
 Everything here is a design decision taken knowingly, not an oversight.
 
-This file describes the direction *after* the Tameion Agents Hackathon
-submission. What is and is not covered by the alpha as it stands is in the
-README ("What this alpha does not cover"); this document is the other half: what
-would come next and what has to be settled first.
+The Tameion Agents Hackathon window closes on **18 October**. This file
+separates what is still worth doing before that date from what comes after it.
+What is and is not covered by the alpha as it stands is in the README ("What
+this alpha does not cover"); this document is the other half: what would come
+next, and what has to be settled first.
 
 Two ground rules apply to everything below:
 
@@ -16,7 +17,7 @@ Two ground rules apply to everything below:
   network or on credentials being reachable, the operator is told, and the
   README documents the consequence.
 
-## 1. The reduced-approval path needs revisiting before the submission
+## 1. The reduced-approval path needs revisiting before 18 October
 
 **Where it stands.** `src/policy/rules.py` approves a request without a human
 when `trust` is between `trust_min_to_consider` (0.4) and
