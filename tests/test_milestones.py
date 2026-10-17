@@ -165,7 +165,7 @@ def test_approved_milestone_opens_a_job_instead_of_paying_directly(log):
     entry = run_pipeline(milestone(), engine=engine_with(), arc_client=arc, escrow=escrow, verbose=False)
 
     arc.send_payment.assert_not_called()  # no direct transfer
-    assert escrow.calls == [("create_job", CONTRACTOR, "tameion:m-1")]  # only the id goes on-chain
+    assert escrow.calls == [("create_job", CONTRACTOR, "custodiante:m-1")]  # only the id goes on-chain
     assert (entry.escrow_job_id, entry.escrow_status) == (42, "open")
     assert entry.payment_status == "escrow_open"
     assert entry.payment_executed is False  # nothing has been paid

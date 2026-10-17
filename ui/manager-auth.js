@@ -9,7 +9,7 @@
  * is not shared with other tabs, which suits a shared-secret alpha.
  */
 (function () {
-  const KEY = 'tameion_manager_token';
+  const KEY = 'custodiante_manager_token';
   let overlay = null;
 
   const token = () => sessionStorage.getItem(KEY) || '';

@@ -53,7 +53,7 @@ from src.requests.schema import PaymentRequest, RequestCategory
 
 # Interactive docs (/docs, /redoc, /openapi.json) would publish the full route
 # map to unauthenticated visitors, so they are disabled.
-app = FastAPI(title="Tameion Payment Agent", docs_url=None, redoc_url=None, openapi_url=None)
+app = FastAPI(title="Custodiante", docs_url=None, redoc_url=None, openapi_url=None)
 
 UI_DIR = Path(__file__).resolve().parent.parent / "ui"
 

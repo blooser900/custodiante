@@ -229,7 +229,7 @@ def _open_escrow(request: PaymentRequest, amount_usdc: float, escrow=None) -> Pa
     job_id: int | None = None
     try:
         escrow = escrow or EscrowClient()
-        job_id, create_tx = escrow.create_job(request.counterparty_wallet, f"tameion:{request.request_id}")
+        job_id, create_tx = escrow.create_job(request.counterparty_wallet, f"custodiante:{request.request_id}")
         if not provider_is_ours(request):
             return PaymentOutcome(
                 "escrow_open",

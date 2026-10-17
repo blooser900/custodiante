@@ -1,5 +1,5 @@
 [project]
-name = "tameion-payment-agent"
+name = "custodiante"
 version = "0.1.0"
 description = "Autonomous payment approval agent with calibrated confidence scoring, built on Circle/Arc."
 requires-python = ">=3.11"

@@ -1,4 +1,4 @@
-# Tameion Payment Agent
+# Custodiante
 
 An autonomous agent that receives payment requests (contractor milestones, supply
 purchases, operational expenses) and decides to **approve, approve with a reduced

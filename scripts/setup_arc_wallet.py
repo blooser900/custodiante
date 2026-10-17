@@ -41,7 +41,7 @@ ENV_PATH = Path(".env")
 RECOVERY_DIR = Path("./recovery")
 BLOCKCHAIN = "ARC-TESTNET"
 FAUCET_URL = "https://faucet.circle.com/"
-WALLET_SET_NAME = "tameion-payment-agent"
+WALLET_SET_NAME = "custodiante"
 
 
 # --------------------------------------------------------------------------
