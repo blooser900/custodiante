@@ -1,4 +1,4 @@
-"""R2-09: a decision must carry the rules that produced it, and a rules CHANGE
+"""A decision must carry the rules that produced it, and a rules CHANGE
 must be in the log too.
 
 The audit log could already answer "what was decided, on what scores, by which
@@ -12,7 +12,7 @@ The second half is the other direction: `PUT /api/config` changed the rules with
 NO entry in the log at all. A log that records every payment but not the rule
 change that made the payment legal is auditing the wrong thing.
 
-Design decisions taken here (see docs/revisao-priorizada.md, R2-09):
+Design decisions taken here:
   * the FULL normalized config is stored on each decision entry, not a hash:
     a hash proves the rules changed but not what they were;
   * a config change is its own entry in the SAME chain, so removing one is
@@ -337,7 +337,7 @@ def test_put_config_records_the_change_in_the_audit_log(api_client, audit_file, 
 
 
 def test_put_config_refuses_a_limit_above_the_funds_available(api_client, audit_file, monkeypatch):
-    """R2-09, second half: the ceiling is enforced where rules are persisted."""
+    """The ceiling is enforced where rules are persisted."""
     monkeypatch.setattr("src.api.load_config", lambda *a, **k: rules())
     saved: list = []
     monkeypatch.setattr("src.api.save_config", lambda config, *a, **k: saved.append(config))

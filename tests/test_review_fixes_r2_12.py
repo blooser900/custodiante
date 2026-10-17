@@ -1,4 +1,4 @@
-"""R2-12: `save_config` must not be able to leave a half-written config behind.
+"""`save_config` must not be able to leave a half-written config behind.
 
 `save_config` opened the target with mode "w", which TRUNCATES before anything
 is written, while `load_config` runs on every request (`apply_policy`, the
@@ -41,7 +41,7 @@ def sibling_temp_files(path: Path) -> list[Path]:
 
 
 def test_a_crash_during_the_write_leaves_the_previous_config_intact(tmp_path, monkeypatch):
-    """The core of R2-12: a failure mid-write must not destroy what was there."""
+    """A failure mid-write must not destroy what was there."""
     import yaml
 
     path = tmp_path / "rules.yaml"

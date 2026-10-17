@@ -118,7 +118,7 @@ def cmd_set_limit(args: argparse.Namespace) -> int:
         max_usdc=args.amount,
         allow_reduced=existing.allow_reduced if existing else args.category not in CATEGORIES_PAID_WHOLE,
     )
-    # R2-09: a ceiling above the funds available is not a limit. Same rule the
+    # A ceiling above the funds available is not a limit. Same rule the
     # API enforces, and it fails open when the balance cannot be read -- see
     # src/policy/ceiling.py -- so an unreachable Circle does not make the rules
     # uneditable.

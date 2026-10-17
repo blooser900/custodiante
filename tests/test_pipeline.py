@@ -272,7 +272,7 @@ def test_resubmitting_a_processed_request_id_is_rejected_before_any_payment(mock
 
 
 # --------------------------------------------------------------------------
-# Crash recovery (SEV-02): the intent is recorded BEFORE the money moves
+# Crash recovery: the intent is recorded BEFORE the money moves
 # --------------------------------------------------------------------------
 
 
@@ -602,7 +602,7 @@ def test_the_engine_sees_a_naive_timestamp_as_utc_not_local(mock_append_entry):
 
 
 # --------------------------------------------------------------------------
-# Human approval writes the in-flight marker too (review R2-01, SEV-03)
+# Human approval writes the in-flight marker too
 # --------------------------------------------------------------------------
 
 
@@ -741,7 +741,7 @@ def test_a_failed_human_approval_payment_is_final_and_explains_itself(fake_log):
 
 
 # --------------------------------------------------------------------------
-# An unconfirmed transfer is not a failure (review R2-02)
+# An unconfirmed transfer is not a failure
 # --------------------------------------------------------------------------
 
 
@@ -814,7 +814,7 @@ def test_the_transfer_is_sent_with_a_key_derived_from_the_request_id(fake_log):
 
 
 # --------------------------------------------------------------------------
-# Getting an approved payment out of a stuck state (review R2-03)
+# Getting an approved payment out of a stuck state
 # --------------------------------------------------------------------------
 
 
@@ -1139,7 +1139,7 @@ def test_retry_refuses_a_request_with_no_wallet_and_an_unknown_request(fake_log)
 
 
 # --------------------------------------------------------------------------
-# An amount that cannot be paid never enters the pipeline (review R2-04)
+# An amount that cannot be paid never enters the pipeline
 # --------------------------------------------------------------------------
 
 

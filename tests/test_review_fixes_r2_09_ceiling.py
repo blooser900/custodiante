@@ -1,15 +1,14 @@
-"""R2-09, part two: a category limit may not exceed the money available.
+"""A category limit may not exceed the money available.
 
 A category limit only had a floor (`max_usdc > 0`). Nothing refused a ceiling
 larger than the treasury holds -- reachable through `PUT /api/config`, through
 the dashboard, and through `manage_rules.py`'s `set-limit`. "Auto-approve under
 the limit" stops being a control when the limit is above the funds.
 
-Ceiling = the wallet's USDC balance (`get_balance()`, the function ALT-11 found
-unused), with a floor of 100,000 USDC so a well-funded wallet does not turn a
-policy decision into a mirror of its balance. The user's rule: "the wallet's
-total balance, or something like 10**5 when get_balance() returns values larger
-than 10**5".
+Ceiling = the wallet's USDC balance (`get_balance()`, a method that had been
+written and never called), with a floor of 100,000 USDC so a well-funded wallet
+does not turn a policy decision into a mirror of its balance: the ceiling is the
+wallet's total balance, or `10**5` when `get_balance()` returns more than that.
 
 What is NOT asserted here: that an unreadable balance blocks a save. It must
 not. Reading a balance needs credentials and the network, and a rules screen that

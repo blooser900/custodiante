@@ -1,13 +1,8 @@
-"""Regressions for the four findings of the priority review (A3, A4, A5, A9).
+"""Regressions for four defects found by reading the code and confirming them by
+execution, rather than by a suite that was already green.
 
 Each test below failed against the code as it stood, for the reason named in
-its docstring; they exist so the same defect cannot come back quietly. The
-review that produced them is `docs/revisao-priorizada.md`; the item ids (A3,
-A4, A5, A9) are the ones used while triaging it.
-
-They are grouped here rather than scattered into the existing files because
-they share one property: they were found by reading the code and then
-confirmed by execution, not by a test suite that was already green.
+its docstring; they exist so the same defect cannot come back quietly.
 """
 
 import os
@@ -92,12 +87,12 @@ def fake_log():
 
 
 # --------------------------------------------------------------------------
-# A3 -- load_config must not die on a filesystem it cannot write to
+# load_config must not die on a filesystem it cannot write to
 # --------------------------------------------------------------------------
 
 
 def test_a3_load_config_survives_a_read_only_filesystem(tmp_path, monkeypatch):
-    """A3: `load_config` wrote the default file with no error handling.
+    """`load_config` wrote the default file with no error handling.
 
     `save_config` is a convenience -- it exists so a human has a file to
     hand-edit. On a read-only filesystem (a container, Lambda, a read-only
@@ -128,7 +123,7 @@ def test_a3_load_config_survives_a_read_only_filesystem(tmp_path, monkeypatch):
 
 
 def test_a3_an_unreadable_config_file_still_raises(tmp_path):
-    """The other half of A3: tolerating a write failure must not swallow a
+    """The other half: tolerating a write failure must not swallow a
     genuinely broken config. A file that exists and cannot be parsed is a real
     problem and has to fail loudly, or a typo in the rules would silently
     become the shipped defaults."""
@@ -142,12 +137,12 @@ def test_a3_an_unreadable_config_file_still_raises(tmp_path):
 
 
 # --------------------------------------------------------------------------
-# A4 -- only an escalated request can be overridden by a human
+# only an escalated request can be overridden by a human
 # --------------------------------------------------------------------------
 
 
 def test_a4_a_human_cannot_override_a_request_the_policy_already_approved(fake_log, mock_config):
-    """A4: `apply_human_override` checked only `human_review is not None`.
+    """`apply_human_override` checked only `human_review is not None`.
 
     It never checked that the request had been escalated. Called on a request
     the policy already approved, it re-approved it and paid the FULL requested
@@ -194,13 +189,13 @@ def test_a4_an_escalated_request_can_still_be_overridden(fake_log, mock_config):
 
 
 # --------------------------------------------------------------------------
-# A5 -- the input contract must refuse an infinite amount
+# the input contract must refuse an infinite amount
 # --------------------------------------------------------------------------
 
 
 @pytest.mark.parametrize("bad", [float("inf"), float("-inf"), float("nan")])
 def test_a5_the_schema_refuses_a_non_finite_amount(bad):
-    """A5: `PaymentRequest.amount_usdc` was `Field(gt=0)` with no
+    """`PaymentRequest.amount_usdc` was `Field(gt=0)` with no
     `allow_inf_nan=False`, so `inf` survived validation on the manager route
     and the CLI while the requester route rejected it (that one has the flag on
     its own model). `inf` reaches the policy comparison and the escrow
@@ -224,12 +219,12 @@ def test_a5_a_plain_amount_is_still_accepted():
 
 
 # --------------------------------------------------------------------------
-# A9 -- a timestamp collision must not pick the wrong row
+# a timestamp collision must not pick the wrong row
 # --------------------------------------------------------------------------
 
 
 def test_a9_a_tied_timestamp_resolves_to_the_row_written_last():
-    """A9: `_latest_for` used `max()` on the timestamp alone.
+    """`_latest_for` used `max()` on the timestamp alone.
 
     An approved payment writes two rows -- the pending row carrying the
     in-flight marker, then the outcome -- and `_settle_recorded` writes them

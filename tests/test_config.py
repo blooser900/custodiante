@@ -93,7 +93,7 @@ def test_load_config_rejects_malformed_yaml_file(tmp_path):
 
 
 # --------------------------------------------------------------------------
-# The hard limits cannot be silently disabled (ALT-06)
+# The hard limits cannot be silently disabled
 # --------------------------------------------------------------------------
 
 
@@ -133,7 +133,7 @@ def test_the_shipped_defaults_satisfy_the_validators():
 
 
 # --------------------------------------------------------------------------
-# The trust bars must not contradict each other (ALT-07)
+# The trust bars must not contradict each other
 # --------------------------------------------------------------------------
 
 

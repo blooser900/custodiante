@@ -1,4 +1,4 @@
-"""Exact USDC amounts (review R2-04).
+"""Exact USDC amounts.
 
 Floats carry the number a human typed; what goes on the wire is rendered from a
 Decimal. These tests pin the cases where the two differ.

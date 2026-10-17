@@ -114,12 +114,12 @@ class AuditEntry(BaseModel):
     attempt_number: int | None = None
     # The most recent failed escrow action, cleared by the next success.
     failed_attempt: FailedAttempt | None = None
-    # ---- R2-09: the rules in force -------------------------------------------
+    # ---- the rules in force --------------------------------------------------
     # The FULL normalized config this decision was made under, so a reviewer can
     # reconstruct it without the rules file as it was that day -- which nobody
     # kept, and which `load_config()` re-reads on every request. A hash alone
     # would prove the rules changed without saying what they were, which is why
-    # the whole snapshot is stored (see docs/revisao-priorizada.md, R2-09).
+    # the whole snapshot is stored.
     #
     # The EFFECTIVE config, after defaults and coercion, not the raw file text:
     # that is what the policy actually read.
@@ -162,7 +162,7 @@ def build_entry(
     src/pipeline.py:_pending_entry); it must be cleared by the row that
     records the outcome.
 
-    Every entry built here carries the rules that were in force (R2-09), read
+    Every entry built here carries the rules that were in force, read
     fresh: `load_config` is cheap and the file is tiny, and a decision whose
     rules are not reconstructible is not auditable. The rows derived from this
     one (the outcome row, a retry) inherit the snapshot by being `model_copy`s

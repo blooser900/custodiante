@@ -1,4 +1,4 @@
-"""Hermeticity of the suite itself (SEV-04, and the R2-09 follow-up).
+"""Hermeticity of the suite itself.
 
 These are tests about the tests: running the suite must not write to the
 developer's working tree. `load_config()` creates `config/rules.yaml` with
@@ -10,7 +10,7 @@ The second half came from the same class of mistake, found by looking at the
 tree rather than at the code: the suite also APPENDED to the real
 `data/audit_log.jsonl`. Nothing noticed while only the payment paths wrote
 there, because those tests mock `append_entry`; once `PUT /api/config` started
-recording a config change (R2-09), `tests/test_api.py` put real rows in the
+recording a config change, `tests/test_api.py` put real rows in the
 developer's log on every run.
 """
 
@@ -73,7 +73,7 @@ def test_load_config_still_returns_the_defaults_under_isolation():
 
 
 def test_the_suite_does_not_write_to_the_real_audit_log():
-    """R2-09 follow-up: the suite appended real rows to `data/audit_log.jsonl`.
+    """The suite appended real rows to `data/audit_log.jsonl`.
 
     Written as a real end-to-end action rather than an assertion about the path
     helper, because the leak came from a route that nobody expected to write:

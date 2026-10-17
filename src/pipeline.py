@@ -327,7 +327,7 @@ def _pending_entry(
     amount_usdc: float,
     engine_name: str,
 ) -> AuditEntry:
-    """The entry written BEFORE any money moves (SEV-02).
+    """The entry written BEFORE any money moves.
 
     Without this, a crash between sending the transfer and writing the result
     leaves no trace, so a retry pays a second time. The marker makes that
@@ -591,7 +591,7 @@ def apply_human_override(
         reason = f"Escalated request {past_tense} by human reviewer ({reviewer})."
 
         def human_entry(**overrides) -> AuditEntry:
-            # The rules in force for the human's decision (R2-09). Read fresh
+            # The rules in force for the human's decision. Read fresh
             # rather than inherited from `original_entry`: a human may be
             # overriding on a later day, under rules that have since changed,
             # and this row has to say which ones were in force for THIS act.
@@ -656,7 +656,7 @@ def apply_human_override(
 
 
 # --------------------------------------------------------------------------
-# Getting an approved payment out of a stuck state (review R2-03)
+# Getting an approved payment out of a stuck state
 # --------------------------------------------------------------------------
 #
 # A direct transfer can end up approved and not paid in three ways, and each

@@ -85,7 +85,7 @@ def isolate_writes_from_the_real_audit_log(tmp_path, monkeypatch):
 
     The fixture above stops tests from READING a real log. It did not stop them
     from APPENDING to one, and nothing caught that until `PUT /api/config`
-    started recording a config change (R2-09): `tests/test_api.py` then appended
+    started recording a config change: `tests/test_api.py` then appended
     a real `config_change` row to `data/audit_log.jsonl` on every run, and the
     file grew until someone looked at it.
 

@@ -1,9 +1,9 @@
-"""Regressions for A10-A13: the demo narrative and the small stumbles around it.
+"""Regressions for the demo narrative and the small stumbles around it.
 
-These are the findings that do not move money by themselves, but they are what a
-reviewer or a judge actually reads and runs. A10 in particular is about telling
-the truth on screen: the escalation scenario used to be decided by the FRAUD
-veto while every document described it as a trust decision.
+These are the defects that do not move money by themselves, but they are what a
+reviewer or a judge actually reads and runs. The first is about telling the
+truth on screen: the escalation scenario used to be decided by the FRAUD veto
+while every document described it as a trust decision.
 """
 
 import json
@@ -55,7 +55,7 @@ def score_scenario(name: str):
 
 
 # --------------------------------------------------------------------------
-# A10 -- the escalation scenario must be decided by the reason we describe
+# the escalation scenario must be decided by the reason we describe
 # --------------------------------------------------------------------------
 
 
@@ -144,7 +144,7 @@ def test_a10_the_readme_and_the_scenario_agree_on_the_reason():
 
 
 # --------------------------------------------------------------------------
-# A11 -- the README names the three scores the policy actually uses
+# the README names the three scores the policy actually uses
 # --------------------------------------------------------------------------
 
 
@@ -177,7 +177,7 @@ def test_a11_the_readme_opens_by_naming_the_score_the_policy_reads():
 
 
 # --------------------------------------------------------------------------
-# A12 -- the editor opens on the platform the operator is on
+# the editor opens on the platform the operator is on
 # --------------------------------------------------------------------------
 
 
@@ -216,7 +216,7 @@ def test_a12_edit_uses_the_resolved_editor(monkeypatch, tmp_path):
 
 
 # --------------------------------------------------------------------------
-# A13 -- a cross-platform demo runner, and unique request ids
+# a cross-platform demo runner, and unique request ids
 # --------------------------------------------------------------------------
 
 

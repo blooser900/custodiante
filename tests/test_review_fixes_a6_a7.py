@@ -1,14 +1,15 @@
-"""Regressions for A6 (a malformed engine answer) and A7 (a blank input in settings).
+"""Regressions for two engine-boundary defects: a malformed engine answer and a
+blank input in settings.
 
-A6 had three symptoms with one root cause: the engine's response was trusted
-without being checked. `body["answers"]` raised a bare `KeyError` when the key
-was absent, a score or confidence outside its range escaped as a Pydantic
+The first had three symptoms with one root cause: the engine's response was
+trusted without being checked. `body["answers"]` raised a bare `KeyError` when
+the key was absent, a score or confidence outside its range escaped as a Pydantic
 `ValidationError`, and either way the request failed with no trace in the audit
 log -- in a system whose whole pitch is that every decision is recorded.
 
-A7 is a browser-side defect with the same shape: `ui/settings.html` turned an
-empty or unparseable input into `0` (`parseFloat(value) || 0`), and `0` passes
-every server validator, so a blank field on the thresholds screen silently
+The second is a browser-side defect with the same shape: `ui/settings.html`
+turned an empty or unparseable input into `0` (`parseFloat(value) || 0`), and `0`
+passes every server validator, so a blank field on the thresholds screen silently
 became `trust_min_auto_approve = 0` -- a policy that approves everything.
 """
 
@@ -77,7 +78,7 @@ def score_with(body):
 
 
 # --------------------------------------------------------------------------
-# A6 -- a malformed engine answer is a typed error, never a bare KeyError
+# a malformed engine answer is a typed error, never a bare KeyError
 # --------------------------------------------------------------------------
 
 
@@ -138,7 +139,7 @@ def test_a6_the_error_is_still_a_runtime_error_for_callers_that_catch_it():
 
 
 # --------------------------------------------------------------------------
-# A6 -- a failed engine call leaves a trace in the audit log
+# a failed engine call leaves a trace in the audit log
 # --------------------------------------------------------------------------
 
 
@@ -221,7 +222,7 @@ def test_a6_the_same_broken_request_is_not_recorded_twice(fake_log):
 
 
 # --------------------------------------------------------------------------
-# A6 -- what the two audiences see when the engine cannot answer
+# what the two audiences see when the engine cannot answer
 # --------------------------------------------------------------------------
 
 
@@ -293,7 +294,7 @@ def test_a6_the_requester_route_keeps_the_engine_internals_private(api_client, f
 
 
 # --------------------------------------------------------------------------
-# A7 -- a blank input in settings.html must not become a policy of zero
+# a blank input in settings.html must not become a policy of zero
 # --------------------------------------------------------------------------
 
 

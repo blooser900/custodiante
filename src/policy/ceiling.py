@@ -1,4 +1,4 @@
-"""The ceiling a category limit may not exceed (R2-09).
+"""The ceiling a category limit may not exceed.
 
 A category limit only ever had a FLOOR (`max_usdc > 0`). Nothing stopped a
 manager -- or a typo in the dashboard, or a `PUT /api/config` -- from setting a
@@ -7,9 +7,9 @@ turns "auto-approve under the limit" into "auto-approve everything". The limit
 is the control; a limit above the money available is not a control.
 
 Where the ceiling comes from: the wallet's own USDC balance, read through the
-same `ArcPaymentClient.get_balance()` the payment path uses -- the function that
-was written and then never called (ALT-11). The balance is the honest answer to
-"what could this system actually pay?".
+same `ArcPaymentClient.get_balance()` the payment path uses. That method was
+written and then never called, which is exactly how the gap went unnoticed. The
+balance is the honest answer to "what could this system actually pay?".
 
 `ceiling_for` takes the balance, with BOTH ends of the range pinned:
 
@@ -18,9 +18,9 @@ was written and then never called (ALT-11). The balance is the honest answer to
   * in the middle it follows the balance: with 5,000 USDC in the wallet, a
     category ceiling of 9,000 is authority the treasury cannot honour;
   * at the top it stops at `MAX_LIMIT_USDC` (100,000), so a very well-funded
-    wallet does not turn a policy decision into a mirror of its balance. This is
-    the author's rule: "the wallet's total balance, or something like 10**5 when
-    get_balance() returns values larger than 10**5";
+    wallet does not turn a policy decision into a mirror of its balance: the
+    ceiling is the wallet's total balance, or `10**5` when `get_balance()`
+    returns more than that;
   * at the bottom it stops at `MIN_FUNDED_USDC` (1,000), so a wallet that has
     not been funded yet can still have its rules configured before the first
     deposit. Without that floor, a zero balance would permit no limit at all.
@@ -100,7 +100,7 @@ def ceiling_for(balance_usdc: float) -> float:
 
 
 def wallet_balance() -> float:
-    """The treasury's USDC balance, read through the payment client (ALT-11).
+    """The treasury's USDC balance, read through the payment client.
 
     Imported here rather than at module level: `arc_client` pulls in the Circle
     SDK, and this module is also imported on paths that never touch a wallet.

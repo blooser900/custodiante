@@ -128,7 +128,7 @@ def test_get_balance_returns_zero_when_no_usdc():
 
 
 # --------------------------------------------------------------------------
-# Idempotency and the "unconfirmed" outcome (review R2-02)
+# Idempotency and the "unconfirmed" outcome
 # --------------------------------------------------------------------------
 
 from src.payments.arc_client import (  # noqa: E402
@@ -243,7 +243,7 @@ def test_a_transfer_already_complete_on_create_still_reports_its_tx_hash(_sleep)
 
 
 # --------------------------------------------------------------------------
-# find_transfer: read-only lookup used by reconciliation (review R2-03)
+# find_transfer: read-only lookup used by reconciliation
 # --------------------------------------------------------------------------
 
 
@@ -325,7 +325,7 @@ def test_find_transfer_never_creates_anything():
 
 
 # --------------------------------------------------------------------------
-# The amount on the wire is rendered from a Decimal (review R2-04)
+# The amount on the wire is rendered from a Decimal
 # --------------------------------------------------------------------------
 
 

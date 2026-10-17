@@ -51,7 +51,7 @@ DEFAULT_THRESHOLDS = {
     # samples the confidence of `trust` never exceeded 0.60, so the condition
     # never fired and the only effect was halving the legitimate auto-approvals
     # (0/12 good -> 6/12) while blocking no bad case at all. The score itself is
-    # what discriminates. See docs/revisao-priorizada.md.
+    # what discriminates.
     "trust_min_auto_approve": 0.75,
     "trust_min_to_consider": 0.4,
     "importance_high": 0.7,

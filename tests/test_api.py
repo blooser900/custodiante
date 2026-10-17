@@ -265,7 +265,7 @@ def test_decide_escalation_approve_executes_payment(mock_read, mock_arc_cls, moc
 
 @patch.dict(os.environ, {"CIRCLE_API_KEY": "fake-key"})
 def test_decide_escalation_refuses_when_a_payment_is_already_in_flight():
-    """The ratchet this path was missing (SEV-03).
+    """The missing ratchet: a second approval while a payment is in flight.
 
     A row whose payment is recorded but unconfirmed has `human_review=None`
     (that field is only set on the row carrying the outcome), so the old
@@ -467,7 +467,7 @@ def test_audit_verify_endpoint_reports_chain_state(mock_verify):
 
 
 # --------------------------------------------------------------------------
-# POST /api/requests/{id}/reconcile and /retry-payment (review R2-03)
+# POST /api/requests/{id}/reconcile and /retry-payment
 # --------------------------------------------------------------------------
 
 
@@ -549,7 +549,7 @@ def test_the_recovery_routes_bound_the_reviewer_text():
 
 
 # --------------------------------------------------------------------------
-# Amounts are checked at the door and totals add up exactly (review R2-04)
+# Amounts are checked at the door and totals add up exactly
 # --------------------------------------------------------------------------
 
 

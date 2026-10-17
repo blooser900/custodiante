@@ -145,15 +145,15 @@ def update_config(config: RulesConfig, request: Request) -> dict:
     # already ran by the time FastAPI builds this parameter -- an invalid
     # body never reaches here, it gets a 422 automatically.
     #
-    # R2-09: the change goes into the audit log, with BOTH versions, BEFORE it
-    # is persisted. A log that records every payment but not the rule change
-    # that made the payment legal is auditing the wrong thing, and recording it
-    # first means a crash during the save still leaves the intent on the log.
+    # The change goes into the audit log, with BOTH versions, BEFORE it is
+    # persisted. A log that records every payment but not the rule change that
+    # made the payment legal is auditing the wrong thing, and recording it first
+    # means a crash during the save still leaves the intent on the log.
     #
-    # The ceiling check (R2-09, second half) is the last thing before the write:
-    # a category limit above the funds available is not a limit. It fails open
-    # when the balance cannot be read -- see src/policy/ceiling.py -- so an
-    # unreachable Circle never makes the rules uneditable.
+    # The ceiling check is the last thing before the write: a category limit
+    # above the funds available is not a limit. It fails open when the balance
+    # cannot be read -- see src/policy/ceiling.py -- so an unreachable Circle
+    # never makes the rules uneditable.
     try:
         require_limits_within_balance(config)
     except LimitAboveCeilingError as e:
@@ -168,7 +168,7 @@ def update_config(config: RulesConfig, request: Request) -> dict:
 def _payment_requests() -> list:
     """The log's per-request view, minus events that are not requests.
 
-    A config change (R2-09) lives in the same chain and therefore in the same
+    A config change lives in the same chain and therefore in the same
     per-request view, keyed by its own id. It is an audit event, not a payment
     request: counting it as one would inflate `total_requests` and could put it
     in the escalation queue. The exclusion is explicit and in one place so a

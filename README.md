@@ -40,8 +40,7 @@ is actually broken before touching it: compare two independent readers of the
 same file (Python vs. your shell), and check that the wheel in the uv cache
 contains the file and that the on-disk copy is the same size. A healthy install
 whose files read fine from a shell but not from Python is an environment policy,
-not a dependency problem — reinstalling will not change it. This cost one review
-round already; see A1/A2 in `docs/revisao-priorizada.md`.
+not a dependency problem — reinstalling will not change it.
 
 Also note that `pytest` is in the `dev` extra: `uv sync` alone does **not**
 install it, and the suite cannot run without `uv sync --extra dev`.
@@ -134,7 +133,7 @@ reason is that confidence measures how concentrated the model's distribution
 was, not whether the answer is right — and in that data the bad cases had the
 *higher* confidence (mean 0.42 against 0.30 for good ones), because a clear
 fraud story is a crisp narrative. Confidence is still recorded and shown to
-managers; it just no longer decides. See `docs/revisao-priorizada.md`.
+managers; it just no longer decides.
 
 ## The payee registry, and why scores are not enough
 

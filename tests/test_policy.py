@@ -72,7 +72,7 @@ def _nature(option: str) -> ChoiceAnswer:
 
 
 # --------------------------------------------------------------------------
-# The fraud veto (ALT-01)
+# The fraud veto
 # --------------------------------------------------------------------------
 
 
@@ -153,7 +153,7 @@ def test_auto_approval_does_not_depend_on_confidence():
         assert result.decision == Decision.APPROVE, (
             f"confidence={confidence} must not block a high trust score: the "
             "engine never exceeds ~0.6, so a threshold there is a rule that "
-            "never fires (see docs/revisao-priorizada.md)"
+            "never fires"
         )
 
 
@@ -314,7 +314,7 @@ def test_custom_threshold_changes_outcome():
 
 
 # --------------------------------------------------------------------------
-# The reduced amount is exact (review R2-04)
+# The reduced amount is exact
 # --------------------------------------------------------------------------
 
 
