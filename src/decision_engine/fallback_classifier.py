@@ -22,7 +22,8 @@ Two Jev-adjacent projects were evaluated and are NOT used here:
     its own input shape, not an HTTP server matching the System One
     contract. Wiring it in would need a different, non-generic adapter.
 
-Run Kev locally, e.g.:
+Run Kev locally, from inside the Kev checkout (its `serve` extra is Kev's own,
+not one of this project's dependencies), e.g.:
     uv run --extra serve python -m kev.serve --run jaredpalmer/kev-4b --port 8009
 
 Then point this client at it via FALLBACK_API_URL / FALLBACK_MODEL below.
@@ -78,7 +79,7 @@ class TypeSafeCompatibleEngine(SystemOneEngine):
     def _unreachable_message(self, error: Exception) -> str:
         return (
             f"Could not reach the decision engine at {self.api_url}. "
-            "Is Kev running? Start it with:\n"
+            "Is Kev running? Start it inside the Kev checkout with:\n"
             "  uv run --extra serve python -m kev.serve "
             f"--run jaredpalmer/kev-4b --port 8009\n(original error: {error})"
         )

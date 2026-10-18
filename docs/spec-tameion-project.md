@@ -9,7 +9,7 @@
 
 ## 1. Overview
 
-An autonomous agent that receives payment requests (contractor/milestone payments, supply purchases, operational expenses) and decides to **approve automatically, approve with a reduced limit, or escalate to a human**, based on three calibrated scores: **confidence**, **urgency**, and **importance**.
+An autonomous agent that receives payment requests (contractor/milestone payments, supply purchases, operational expenses) and decides to **approve automatically, approve with a reduced limit, or escalate to a human**, based on three calibrated scores: **trust**, **urgency**, and **importance**. Every answer also carries a `confidence`, which is recorded and shown to managers but does not itself gate the decision.
 
 The central difference from the "run-of-the-mill" examples provided by the event: the decision does not come from a static rule (if/else), nor from a general-purpose LLM trying to "guess its own confidence" (which is poorly calibrated by nature). It comes from a **dedicated decision model**, in the "System One" style (e.g. Jev, by TypeSafe AI), which answers typed questions (Score/Choice/Noul) with calibrated probability — without producing free text, without hallucinating outside the defined schema.
 
@@ -36,7 +36,7 @@ Concrete pain point: payments and purchases (contracts, supplies, expenses) curr
         ▼
 [2. Decision Engine (Jev or equivalent)]
         → answers 3 typed questions:
-           - "confidence" score: how trustworthy/legitimate is this request?
+           - "trust" score: how trustworthy/legitimate is this request?
            - "urgency" score: how urgent is the payment (deadline, risk of delay)?
            - "importance" score: what is the impact if this payment is not made?
         → every answer carries a calibrated probability/confidence
@@ -50,7 +50,8 @@ Concrete pain point: payments and purchases (contracts, supplies, expenses) curr
         ▼
 [4. Payment execution] (if approved)
         → triggers a transaction via Circle/Arc (testnet or mainnet), in USDC
-        → uses arc-escrow as the basis for conditional release logic (RFB03)
+        → uses the ERC-8183 AgenticCommerce job contract that Arc deploys on
+          testnet for conditional release logic (RFB03; no Solidity of our own)
         │
         ▼
 [5. Append-only log / Audit Trail]
@@ -66,9 +67,9 @@ Concrete pain point: payments and purchases (contracts, supplies, expenses) curr
 ### Priority 1 — Core (required for the demo to work)
 1. **Payment request endpoint/CLI** — receives a structured request (JSON: amount, category, requester, description, due date).
 2. **Decision engine with calibrated scores** — integration with Jev (if access is available in time) OR a functionally equivalent substitute: a classifier (e.g. a small fine-tuned model, or an LLM + JSON formatter with output restricted to a schema) that returns the three scores along with an associated confidence/probability value. **Important:** the engine behind it is an implementation detail — the pitch and the external interface must behave like a "calibrated decision engine", regardless of the actual backend.
-3. **Rules/policy layer** — simple, explicit thresholds (e.g. confidence < X → escalate; high importance + high urgency + medium confidence → approve with a reduced limit). Document these rules explicitly in code (not as a loose prompt).
+3. **Rules/policy layer** — simple, explicit thresholds (e.g. trust < X → escalate; medium trust with high urgency **or** high importance → approve with a reduced limit; amount above the category ceiling → escalate). Document these rules explicitly in code (not as a loose prompt).
 4. **Simulated/real payment execution** — a call to the Arc/Circle stack (testnet USDC is acceptable; mainnet is valued in judging if feasible).
-5. **Append-only log** — every decision produces a signable/reconstructible record (balance seen, scores, rule applied, outcome).
+5. **Append-only log** — every decision produces a tamper-evident, reconstructible record (the request and the history the model saw, its scores, the rule applied, the rules in force, and the outcome).
 
 ### Priority 2 — Reuse (low incremental cost)
 6. **Report** — visualization/export of the existing log (item 5), with no new data-capture logic. It can be a simple dashboard or even a markdown/CSV generated from the log.
@@ -86,7 +87,7 @@ Concrete pain point: payments and purchases (contracts, supplies, expenses) curr
 - Public repository on **GitHub** (mandatory).
 - Demo video of up to **3 minutes** (Loom/YouTube/Vimeo).
 - A live link is optional, but recommended.
-- The project will be judged on the **delta** of progress during the event window (Sep 27–Oct 10), not on prior history.
+- The project will be judged on the **delta** of progress during the event window (Sep 27–Oct 18), not on prior history.
 - Judging criteria: 30% agent sophistication (how much it actually *decides* vs. merely automates), 30% real traction, 20% use of the Circle stack, 20% innovation.
 
 ---
@@ -94,7 +95,7 @@ Concrete pain point: payments and purchases (contracts, supplies, expenses) curr
 ## 6. Suggested Stack
 
 - **Decision/classification:** Jev (TypeSafe) via API, or a fallback with an in-house classifier + structured JSON output formatter.
-- **Payment/settlement:** Circle Agent Stack (Wallets, Paymaster) + Arc CLI, with reference code in `circlefin/arc-escrow` (for conditional release logic).
+- **Payment/settlement:** Circle Developer-Controlled Wallets (Python SDK) on Arc, in USDC; conditional release through the ERC-8183 AgenticCommerce job contract that Arc deploys on testnet.
 - **Ledger/log:** a simple append-only structure (it can be based on `beancount` or a signed JSON log, depending on the time available).
 - **Language:** at the author's discretion, according to the stack already mastered.
 

@@ -24,9 +24,11 @@ python -m demo.run_demo           # runs the 3 demo scenarios end to end
 python -m pytest                  # unit tests (no credentials needed)
 ```
 
-`uv.lock` pins every dependency. `pyproject.toml` also pins the direct ones
-exactly, because this system moves money and reads model scores: two installs of
-the same commit must decide the same way, or the audit log cannot be replayed.
+`uv.lock` pins every dependency, hashes included. `pyproject.toml` also pins
+every *runtime* dependency exactly, because this system moves money and reads
+model scores: two installs of the same commit must decide the same way, or the
+audit log cannot be replayed. The one exception is `pytest` in the `dev` group,
+which is a floor rather than a pin — it never touches a decision.
 
 **If `pytest` fails with a `ModuleNotFoundError` for a Circle model**, run
 `python -m pytest tests/test_circle_sdk_available.py` first. It names the real
@@ -42,8 +44,10 @@ contains the file and that the on-disk copy is the same size. A healthy install
 whose files read fine from a shell but not from Python is an environment policy,
 not a dependency problem — reinstalling will not change it.
 
-Also note that `pytest` is in the `dev` extra: `uv sync` alone does **not**
-install it, and the suite cannot run without `uv sync --extra dev`.
+`pytest` lives in the `dev` dependency group, which `uv sync` installs by default
+(`--no-dev` skips it), and the same dependency is mirrored as the `dev` extra so
+that `pip install .[dev]` gets it too. `uv sync --extra dev` is therefore
+redundant with uv, not required.
 
 ### One-time Arc testnet setup
 
@@ -97,10 +101,17 @@ Each request goes to the engine as one call carrying every question, with a
   this a past decision could not be explained. Managers see all of it (pending
   escalations and the expandable ledger row); requesters never do.
 
-**Status: two answers decide, the rest inform a human.** The policy decides from
-`trust` and, since the fraud veto, from `fraud_indicators`. `urgency`,
-`importance`, `natureza_transacao` and `description_matches_category` are
-recorded and shown to a manager. The policy, not the model, stays the authority.
+**Status: `trust` decides, `urgency`/`importance` decide the reduced branch, and
+the fraud signal vetoes.** `trust` below `trust_min_to_consider` escalates
+immediately, and at or above `trust_min_auto_approve` it approves without a
+human. A fraud signal — `fraud_indicators` at the veto bar, or
+`natureza_transacao` answering `risco_fraude` — stops any automatic approval.
+Between those two trust bars, a request is approved at a reduced amount only when
+`urgency` or `importance` is at or above its high bar *and* the category allows a
+part payment; otherwise it escalates. `description_matches_category` is recorded
+and shown to a manager but decides nothing. Two checks read no score at all — the
+category ceiling and the payee check below — and escalate on their own. The
+policy, not the model, stays the authority.
 
 **What decides, and exactly how.**
 
@@ -233,11 +244,14 @@ upgrading cannot silently re-enable part payments for a milestone.
 
 ### Collecting real answers for calibration
 
-The extra questions are recorded but do not decide anything yet, because a
-threshold picked without seeing real answers would be a guess. To get the data:
+`fraud_indicators` and the `natureza_transacao` answer do decide: either one
+vetoes an automatic approval (see "What decides, and exactly how" above), and the
+samples below are how that bar is justified. `description_matches_category` is
+still recorded only, because a threshold picked without seeing real answers would
+be a guess. To get the data:
 
 ```bash
-python -m scripts.collect_samples                 # 13 scenarios: good, doubtful, bad
+python -m scripts.collect_samples                 # 17 scenarios: good, doubtful, bad, discordant
 python -m scripts.collect_samples --repeat 3      # also measure run-to-run noise
 python -m scripts.collect_samples --only good_routine_supplies,bad_denied_before
 ```
@@ -247,8 +261,10 @@ It uses the engine selected by `DECISION_ENGINE`, through the same
 a header with the questions, then one line per run with the exact `state` the
 engine was shown and its raw answers (probabilities included). Each scenario
 has a hand-built history, so the run is reproducible and never touches the real
-audit log. At the end it prints a table and the mean P(yes) per group
-(good / doubtful / bad), which is the first read on where thresholds could go.
+audit log. At the end it prints a table and the mean P(yes) per group (good /
+doubtful / bad / discordant), which is the first read on where thresholds could
+go. The `discordant` group exists to make the trust score and the fraud signal
+disagree, so the fraud veto has something to prove itself against.
 
 **No timeout.** The script waits as long as the engine needs (a model on a CPU
 can take many seconds), and every answer is written the moment it arrives, so
@@ -383,7 +399,7 @@ approved ─► createJob ─► (contractor) setBudget ─► fund ─► (cont
                                               reject ─┴─► refunded       └─► release ─► paid
 ```
 
-- The dashboard's **Milestones em escrow** panel shows each job with its live
+- The dashboard's **Milestones in escrow** panel shows each job with its live
   on-chain status and offers fund / release / reject. Release is only enabled
   once the chain says the contractor has submitted.
 - Every step appends an entry to the audit log (`escrow_job_id`,
@@ -419,8 +435,8 @@ state in that entry is unchanged: funds did not move, and the log never says
 otherwise. The dashboard shows the last failure on the milestone and counts
 milestones needing attention; the next success clears it.
 
-Two deliberate limits: an identical repeated failure is logged once (the API
-has no authentication, so repeating a bad request must not grow the
+Two deliberate limits: an identical repeated failure is logged once (repeating the same failure adds no
+new information, and a client stuck in a retry loop must not grow the
 hash-chained log without bound), and refusals made before reaching the escrow
 (unknown request, action not valid for the current state) are not logged,
 since nothing was attempted.
@@ -576,9 +592,13 @@ REQUESTER_ACCESS_CODE=                          # optional: gate who may submit
 
 - One shared manager token: every manager is the same identity. The `reviewer`
   name stored in the audit log is typed by the manager, not proven by the token.
-- A requester's name and destination wallet are self-declared. The model's trust
-  score reads the name, and the wallet decides where money goes. Fixing this
-  needs per-requester identity and a vendor registry maintained by managers.
+- A requester's name is self-declared, so its history is weak evidence: anyone
+  can type any name and inherit that name's record. The destination side is no
+  longer a guess — the payee registry (`src/payees.py`) ties each payee to the
+  wallets it may be paid at, and a wallet mismatch or an unknown payee escalates
+  — but that registry is maintained by hand (`register-vendor`) plus whatever
+  the log has already proved, so it is only as good as the manager keeping it.
+  Strong requester history still needs authenticated requesters.
 - A coarse status is still an oracle: someone can retry with different wording
   and watch the outcome. The defense is bounded impact (limits, human review,
   escrow), not secrecy. There is no per-requester aggregate limit yet, so many
@@ -595,7 +615,7 @@ uvicorn src.api:app --reload --port 8000
 - http://127.0.0.1:8000/ : the requester portal. Submit a request; the list below
   follows each one sent from this browser (the ids are kept in its local storage).
 - http://127.0.0.1:8000/manager : asks for the manager token, then shows the
-  escalations waiting for a decision, the **Milestones em escrow** panel, and the
+  escalations waiting for a decision, the **Milestones in escrow** panel, and the
   ledger. Each ledger row expands to the request, the policy reason, the three scores
   with the engine's certainty, the engine used and the reviewer. Executed payments link
   to the Arc testnet explorer; failed ones say why.

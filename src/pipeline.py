@@ -875,9 +875,9 @@ def _record_failed_attempt(current: AuditEntry, action: str, reviewer: str, erro
 
     Two safeguards:
     - A failure identical to the one already on top of the log (same action,
-      same error) is not appended again. The API has no authentication, so
-      without this anyone could grow the hash-chained log without bound by
-      repeating a bad request.
+      same error) is not appended again: repeating it adds no information, and a
+      client stuck in a retry loop must not grow the hash-chained log without
+      bound.
     - Writing this entry must never hide the real error: if the log write
       itself fails, that is reported via `logging` and the caller still
       gets the original exception.
