@@ -21,7 +21,7 @@ from pydantic import BaseModel
 
 from src.audit.logger import AuditEntry
 
-PublicState = Literal["in_review", "approved", "paid", "declined"]
+PublicState = Literal["in_review", "approved", "paid", "not_sent", "declined"]
 
 # Only ids that start with this are served by the requester endpoints, so
 # they cannot be used to probe ids created through other channels (CLI, demo).
@@ -38,8 +38,9 @@ class PublicStatus(BaseModel):
     status: PublicState
     category: str
     amount_requested: float
-    # Set once the request is approved or paid; None while in review or after
-    # a refusal, so a refusal never reveals what would have been acceptable.
+    # Set once the request is approved or paid (and on `not_sent`, which was
+    # authorized but never sent); None while in review or after a refusal, so a
+    # refusal never reveals what would have been acceptable.
     amount_approved: float | None
     updated_at: str
     # Only once paid, and only the payment itself: it is public on-chain anyway.
@@ -56,14 +57,22 @@ def public_state(entry: AuditEntry) -> PublicState:
         # approval is recorded as decision="approve"; the != check above only
         # keeps this correct if that representation ever changes.)
         return "declined" if entry.human_review == "denied" else "in_review"
-    # Approved by the policy or by a human. A payment that failed or is held
-    # in escrow still reads as "approved": its internals are the manager's.
+    # Approved, but provably not sent: a skipped payment (no destination wallet,
+    # no Circle credentials) or one that definitely failed. These used to read as
+    # "approved", which left a requester watching "payment processing" forever
+    # with no way to learn it would never resolve. Only the fact that nothing was
+    # sent is exposed; the reason stays the manager's.
+    if entry.payment_status in ("skipped", "failed"):
+        return "not_sent"
+    # Approved by the policy or by a human, and either held in escrow or still in
+    # flight (`unconfirmed`, where the money may actually have moved -- so never
+    # "not_sent"). Its internals are the manager's.
     return "approved"
 
 
 def to_public_status(entry: AuditEntry) -> PublicStatus:
     state = public_state(entry)
-    approved = state in ("approved", "paid")
+    approved = state in ("approved", "paid", "not_sent")
     return PublicStatus(
         request_id=entry.request.request_id,
         status=state,

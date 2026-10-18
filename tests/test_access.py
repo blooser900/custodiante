@@ -167,7 +167,8 @@ def make_entry(**overrides) -> AuditEntry:
         (dict(decision="approve", escrow_status="released", payment_executed=True), "paid"),
         (dict(decision="approve", payment_executed=True, escrow_job_id=None, escrow_status=None), "paid"),
         (dict(decision="approve", escrow_status="rejected"), "declined"),
-        (dict(decision="approve", payment_status="failed", escrow_job_id=None, escrow_status=None), "approved"),
+        (dict(decision="approve", payment_status="failed", escrow_job_id=None, escrow_status=None), "not_sent"),
+        (dict(decision="approve", payment_status="skipped", escrow_job_id=None, escrow_status=None), "not_sent"),
     ],
 )
 def test_public_state_mapping(overrides, expected):

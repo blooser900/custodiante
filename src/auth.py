@@ -12,6 +12,7 @@ Alpha scope, deliberately: one shared manager token, no per-user identity, no
 rate limiting. See README ("Roles and access") for what that does not cover.
 """
 
+import logging
 import os
 import secrets
 
@@ -21,9 +22,32 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 load_dotenv()
 
-# Short tokens are guessable; refuse to treat one as configured. This also
-# stops the placeholder from .env.example from being accepted as a real secret.
+logger = logging.getLogger(__name__)
+
+# Short tokens are guessable; refuse to treat one as configured.
 MIN_TOKEN_LENGTH = 16
+
+# The value shipped in .env.example. It is deliberately USABLE, so that a
+# reviewer can open the dashboard without generating a secret first, and
+# deliberately NOT SECRET: anyone with the repository has it. `manager_token`
+# warns once while it is still in force, so a public deployment of the demo
+# token is loud rather than silent.
+EXAMPLE_MANAGER_TOKEN = "trust-me-im-the-manager-token"
+
+_warned_about_example_token = False
+
+
+def _warn_if_example_token_in_use(token: str) -> None:
+    """Say so once -- not on every request -- while the demo token is set."""
+    global _warned_about_example_token
+    if _warned_about_example_token or token != EXAMPLE_MANAGER_TOKEN:
+        return
+    _warned_about_example_token = True
+    logger.warning(
+        "MANAGER_TOKEN is the demo value shipped in .env.example, so anyone with "
+        "the repository can sign in as manager. Change it before exposing the app "
+        "beyond localhost."
+    )
 
 _bearer = HTTPBearer(auto_error=False)
 
@@ -31,7 +55,10 @@ _bearer = HTTPBearer(auto_error=False)
 def manager_token() -> str | None:
     """The configured manager token, or None if absent or too short."""
     token = os.environ.get("MANAGER_TOKEN", "").strip()
-    return token if len(token) >= MIN_TOKEN_LENGTH else None
+    if len(token) < MIN_TOKEN_LENGTH:
+        return None
+    _warn_if_example_token_in_use(token)
+    return token
 
 
 def _matches(supplied: str, expected: str) -> bool:

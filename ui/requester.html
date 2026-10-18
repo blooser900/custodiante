@@ -113,6 +113,48 @@
     gap: 0.9rem 1.25rem;
   }
   form.new-request .full { grid-column: 1 / -1; }
+  form.new-request label {
+    display: block;
+    font-size: 0.82rem;
+    color: var(--ink-soft);
+    margin-bottom: 0.3rem;
+  }
+  form.new-request input,
+  form.new-request select,
+  form.new-request textarea {
+    width: 100%;
+    font-family: inherit;
+    font-size: 0.92rem;
+    padding: 0.55rem 0.65rem;
+    border: 1px solid var(--paper-line);
+    border-radius: 3px;
+    background: #fff;
+    color: var(--ink);
+    transition: border-color 120ms ease, box-shadow 120ms ease;
+  }
+  form.new-request input::placeholder { color: #93A08F; }
+  /* A native select renders in the OS style, which is the single biggest reason
+     the form looked unlike the rest of the app. Draw our own chevron instead. */
+  form.new-request select {
+    appearance: none;
+    -webkit-appearance: none;
+    padding-right: 1.9rem;
+    background-image:
+      linear-gradient(45deg, transparent 50%, var(--ink-soft) 50%),
+      linear-gradient(135deg, var(--ink-soft) 50%, transparent 50%);
+    background-position: right 0.95rem center, right 0.6rem center;
+    background-size: 5px 5px, 5px 5px;
+    background-repeat: no-repeat;
+  }
+  form.new-request input:focus,
+  form.new-request select:focus,
+  form.new-request textarea:focus {
+    border-color: var(--focus);
+    box-shadow: 0 0 0 3px rgba(44, 90, 160, 0.14);
+  }
+  form.new-request textarea { resize: vertical; min-height: 5rem; line-height: 1.45; }
+  /* Amounts and addresses are data: monospace keeps digits and 0x… aligned. */
+  #f-amount, #f-wallet { font-family: 'IBM Plex Mono', monospace; letter-spacing: 0.01em; }
   .hint { font-size: 0.78rem; color: var(--ink-soft); margin: 0.25rem 0 0; }
   .form-actions { grid-column: 1 / -1; display: flex; align-items: center; gap: 0.9rem; flex-wrap: wrap; }
   .form-result { font-size: 0.88rem; color: var(--ink-soft); }
@@ -136,6 +178,8 @@
   }
   .state.in_review { background: var(--slate-bg); color: var(--slate); }
   .state.approved { background: var(--gold-bg); color: var(--gold); }
+  /* Approved but provably not sent: dashed, so it never reads as a final state. */
+  .state.not_sent { background: var(--slate-bg); color: var(--slate); border: 1px dashed var(--paper-line); }
   .state.paid { background: #DDEBDD; color: #2F5D34; }
   .state.declined { background: var(--rust-bg); color: var(--rust); }
   .tx-link { font-family: 'IBM Plex Mono', monospace; font-size: 0.8rem; }
@@ -216,6 +260,7 @@ const CATEGORY_LABEL = {
 const STATE_LABEL = {
   in_review: 'Under review',
   approved: 'Approved · payment processing',
+  not_sent: 'Approved · not sent',
   paid: 'Paid',
   declined: 'Declined',
 };

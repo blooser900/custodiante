@@ -20,6 +20,12 @@ docs/spec-projeto-tameion.md
 # Personal working notes: not part of the deliverable.
 docs/revisao-priorizada.md
 
+# ui/dashboard.html is a local design reference (an earlier manager dashboard,
+# kept for its field styling). Nothing serves it -- src/api.py exposes only /,
+# /manager, /manager/settings and /ui/manager-auth.js -- so it must not be
+# published as if it were a page of the app.
+ui/dashboard.html
+
 # --- Local runtime data ---
 # Audit log and any other local state written at runtime (see AUDIT_LOG_PATH).
 data/

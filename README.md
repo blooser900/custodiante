@@ -562,7 +562,7 @@ just by which page is open:
 |---|---|---|
 | Page | `/` | `/manager`, `/manager/settings` |
 | Can | submit a payment request; follow its status | see every request with scores, certainty, reasons and engine; approve/deny escalations; fund/release/reject escrow; edit the rules |
-| Sees | a coarse status: *Under review*, *Approved*, *Paid*, *Declined*; the amounts; the tx once paid | everything |
+| Sees | a coarse status: *Under review*, *Approved*, *Approved · not sent*, *Paid*, *Declined*; the amounts; the tx once paid | everything |
 | Auth | none (optional shared `REQUESTER_ACCESS_CODE` to submit) | `MANAGER_TOKEN` as a bearer token |
 
 Why the requester must not see how a decision was made: the policy `reason`
@@ -578,7 +578,18 @@ REQUESTER_ACCESS_CODE=                          # optional: gate who may submit
 ```
 
 - **Fail closed.** With no usable `MANAGER_TOKEN`, every manager route returns 503.
-  The placeholder from `.env.example` and anything under 16 characters count as unset.
+  Anything under 16 characters counts as unset.
+- **The shipped token is a demo token, and it works.** `.env.example` ships
+  `trust-me-im-the-manager-token`, so `cp .env.example .env` is enough to open
+  `/manager` — a reviewer should not have to generate a secret before seeing the
+  product. It is not a secret: anyone with the repository has it. The server logs
+  a warning for as long as it is in force, and it must be replaced before the app
+  listens on anything other than localhost.
+
+   A requester's status is coarse on purpose: `Approved · not sent` means the
+   policy approved it and the money never left (no `CIRCLE_API_KEY`, no
+   destination wallet, or a transfer that definitely failed). The reason stays
+   with the manager.
 - Every `/api` route requires the token except `/api/requester/*`. This is enforced
   by one router dependency and a test that derives the route list from the app and
   calls each one anonymously, so a route added later and left open fails the suite.

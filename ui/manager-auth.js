@@ -24,7 +24,8 @@
       overlay.innerHTML = `
         <form id="maForm" style="width:100%;max-width:22rem;font-family:'IBM Plex Sans',system-ui,sans-serif;color:var(--ink,#1E2A22);">
           <h1 style="font-family:'Source Serif 4',serif;font-size:1.5rem;font-weight:600;margin:0 0 0.35rem;">Manager sign-in</h1>
-          <p style="margin:0 0 1.25rem;font-size:0.9rem;color:var(--ink-soft,#4B5A4F);">Enter the access token to review and decide payments.</p>
+          <p style="margin:0 0 0.4rem;font-size:0.9rem;color:var(--ink-soft,#4B5A4F);">Enter the access token to review and decide payments.</p>
+          <p style="margin:0 0 1.25rem;font-size:0.8rem;color:var(--ink-soft,#4B5A4F);">Running the demo from the repository? It is <code>MANAGER_TOKEN</code> in your <code>.env</code>, shipped in <code>.env.example</code> as <code>trust-me-im-the-manager-token</code>.</p>
           <label for="maToken" style="display:block;font-size:0.82rem;color:var(--ink-soft,#4B5A4F);margin-bottom:0.25rem;">Token</label>
           <input id="maToken" type="password" autocomplete="off" required
             style="width:100%;box-sizing:border-box;font:inherit;padding:0.55rem 0.65rem;border:1px solid var(--paper-line,#C9D3C3);border-radius:3px;background:#fff;" />

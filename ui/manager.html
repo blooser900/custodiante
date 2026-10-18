@@ -222,6 +222,7 @@
   .integrity.bad { color: var(--rust); font-weight: 600; }
   .pay-failed { color: var(--rust); font-weight: 600; cursor: help; }
   .pay-skipped { color: var(--slate); cursor: help; }
+  .pay-why { color: var(--ink-soft); font-weight: 400; font-size: 0.78rem; }
   .tx-link { font-family: 'IBM Plex Mono', monospace; font-size: 0.8rem; }
 
   @media (prefers-reduced-motion: reduce) {
@@ -450,12 +451,15 @@ function paymentCell(e) {
   // payment_status is null on entries written before the field existed.
   const status = e.payment_status || (e.payment_executed ? 'executed' : 'not_applicable');
   const detail = escapeHtml(e.payment_detail || '');
+  // Shown as text, not only inside a title attribute: a projected or recorded
+  // demo never reveals a tooltip, so a bare "Not sent" reads as a mystery.
+  const why = detail ? ` <span class="pay-why">— ${detail}</span>` : '';
   if (status === 'executed') return 'Yes';
   if (status === 'escrow_open') return '<span class="pay-skipped" title="Job created; waiting for the contractor to set the budget.">Escrow open</span>';
   if (status === 'escrowed') return '<span class="pay-skipped" title="Amount locked in the contract, not released yet.">In escrow</span>';
   if (status === 'refunded') return 'Refunded';
-  if (status === 'failed') return `<span class="pay-failed" title="${detail}">Failed</span>`;
-  if (status === 'skipped') return `<span class="pay-skipped" title="${detail}">Not sent</span>`;
+  if (status === 'failed') return `<span class="pay-failed" title="${detail}">Failed</span>${why}`;
+  if (status === 'skipped') return `<span class="pay-skipped" title="${detail}">Not sent</span>${why}`;
   return 'No';
 }
 
