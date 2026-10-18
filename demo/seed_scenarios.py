@@ -8,9 +8,14 @@ on camera (one auto-approve, one reduced approval, one escalation).
 import json
 import os
 import secrets
+import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
+
+# Same reason as demo/run_demo.py: support `python demo/seed_scenarios.py` as
+# well as `python -m demo.seed_scenarios`, which is what the README documents.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from dotenv import load_dotenv
 

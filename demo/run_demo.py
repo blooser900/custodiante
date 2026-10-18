@@ -18,6 +18,13 @@ import subprocess
 import sys
 from pathlib import Path
 
+# `python -m demo.run_demo` puts the repository root on sys.path; running this
+# file by its path (`python demo/run_demo.py`, which is the spelling people and
+# demo judges actually type) puts demo/ there instead, and then
+# `from demo.seed_scenarios import ...` fails with ModuleNotFoundError.
+# Support both.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
 SCENARIOS_DIR = Path(__file__).parent / "scenarios"
 
 # The interpreter running this file, so the child processes use the same

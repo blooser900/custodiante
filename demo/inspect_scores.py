@@ -12,6 +12,11 @@ Usage:
 
 import json
 import sys
+from pathlib import Path
+
+# Same reason as demo/run_demo.py: support `python demo/inspect_scores.py` as
+# well as `python -m demo.inspect_scores`.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import httpx
 
